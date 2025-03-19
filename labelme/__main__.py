@@ -190,11 +190,13 @@ def main():
 
     output_file = None
     output_dir = None
+    print("11111111111111111\n")
     if output is not None:
         if output.endswith(".json"):
             output_file = output
         else:
             output_dir = output
+    print("222222222222222222\n")
 
     translator = QtCore.QTranslator()
     translator.load(
