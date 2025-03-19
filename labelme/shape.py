@@ -198,7 +198,6 @@ class Shape(object):
             )
 
             painter.drawImage(self._scale_point(point=self.points[0]), qimage)
-
             line_path = QtGui.QPainterPath()
             contours = skimage.measure.find_contours(np.pad(self.mask, pad_width=1))
             for contour in contours:

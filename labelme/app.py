@@ -6,6 +6,7 @@ import math
 import os
 import os.path as osp
 import re
+import time
 import webbrowser
 
 import imgviz
@@ -1385,12 +1386,13 @@ class MainWindow(QtWidgets.QMainWindow):
             flags: dict = shape["flags"] or {}
             description = shape.get("description", "")
             group_id = shape["group_id"]
-            other_data = shape["other_data"]
+            other_data = {}
+            # other_data = shape["other_data"]
 
             if not points:
                 # skip point-empty shape
                 continue
-
+            
             shape = Shape(
                 label=label,
                 shape_type=shape_type,
@@ -1424,8 +1426,9 @@ class MainWindow(QtWidgets.QMainWindow):
             self.flag_widget.addItem(item)
 
     def saveLabels(self, filename):
-        lf = LabelFile()
-
+        # 2025 03 18 bsg save bug fix
+        lf = LabelFile(filename)
+        # 2025 03 18 bsg save bug fix end
         def format_shape(s):
             data = s.other_data.copy()
             data.update(
@@ -1662,6 +1665,18 @@ class MainWindow(QtWidgets.QMainWindow):
         if filename is None:
             filename = self.settings.value("filename", "")
         filename = str(filename)
+        # 2025 03 18 bsg recognize mp4
+        if filename.endswith(".mp4"):
+            directory_path = filename[:-4]
+            if os.path.exists(directory_path) and os.path.isdir(directory_path):
+                self.importDirImages(directory_path)
+                return True
+            else :
+                os.system('video-toimg '+filename)
+                self.importDirImages(directory_path)
+                return True
+        # 2025 03 18 bsg recognize mp4 end
+
         if not QtCore.QFile.exists(filename):
             self.errorMessage(
                 self.tr("Error opening file"),
@@ -1671,9 +1686,13 @@ class MainWindow(QtWidgets.QMainWindow):
         # assumes same name, but json extension
         self.status(str(self.tr("Loading %s...")) % osp.basename(str(filename)))
         label_file = osp.splitext(filename)[0] + ".json"
+        if not QtCore.QFile.exists(label_file):
+            label_file = osp.splitext(filename)[0] + ".csv"
+        
         if self.output_dir:
             label_file_without_path = osp.basename(label_file)
             label_file = osp.join(self.output_dir, label_file_without_path)
+
         if QtCore.QFile.exists(label_file) and LabelFile.is_label_file(label_file):
             try:
                 self.labelFile = LabelFile(label_file)
@@ -1700,7 +1719,6 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.imagePath = filename
             self.labelFile = None
         image = QtGui.QImage.fromData(self.imageData)
-
         if image.isNull():
             formats = [
                 "*.{}".format(fmt.data().decode())
@@ -1854,6 +1872,7 @@ class MainWindow(QtWidgets.QMainWindow):
         if self.mayContinue():
             self.loadFile(filename)
 
+
     def openPrevImg(self, _value=False):
         keep_prev = self._config["keep_prev"]
         if QtWidgets.QApplication.keyboardModifiers() == (
@@ -1875,6 +1894,7 @@ class MainWindow(QtWidgets.QMainWindow):
             filename = self.imageList[currIndex - 1]
             if filename:
                 self.loadFile(filename)
+
 
         self._config["keep_prev"] = keep_prev
 
@@ -1915,6 +1935,9 @@ class MainWindow(QtWidgets.QMainWindow):
             "*.{}".format(fmt.data().decode())
             for fmt in QtGui.QImageReader.supportedImageFormats()
         ]
+        #2025 03 17 bsg filedialog add format
+        formats += ["*.json","*.csv","*.mp4"]
+        #2025 03 17 bsg filedialog add format end
         filters = self.tr("Image & Label files (%s)") % " ".join(
             formats + ["*%s" % LabelFile.suffix]
         )
@@ -1930,6 +1953,8 @@ class MainWindow(QtWidgets.QMainWindow):
             fileName = fileDialog.selectedFiles()[0]
             if fileName:
                 self.loadFile(fileName)
+                logger.warning(f"bsg openfile end\n")
+
 
     def changeOutputDirDialog(self, _value=False):
         default_output_dir = self.output_dir
@@ -2005,8 +2030,12 @@ class MainWindow(QtWidgets.QMainWindow):
             self,
             self.tr("Choose File"),
             default_labelfile_name,
-            self.tr("Label files (*%s)") % LabelFile.suffix,
+            # self.tr("Label files (*%s)") % LabelFile.suffix,
+            # default_labelfile_name.replace(LabelFile.suffix, ".csv"),
+            self.tr("JSON files (*.json);;CSV files (*.csv)")
         )
+        if not filename:
+            return
         if isinstance(filename, tuple):
             filename, _ = filename
         return filename
@@ -2026,10 +2055,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.actions.saveAs.setEnabled(False)
 
     def getLabelFile(self):
-        if self.filename.lower().endswith(".json"):
-            label_file = self.filename
-        else:
-            label_file = osp.splitext(self.filename)[0] + ".json"
+        label_file = self.filename
 
         return label_file
 
@@ -2065,7 +2091,6 @@ class MainWindow(QtWidgets.QMainWindow):
     def hasLabelFile(self):
         if self.filename is None:
             return False
-
         label_file = self.getLabelFile()
         return osp.exists(label_file)
 
@@ -2231,10 +2256,14 @@ class MainWindow(QtWidgets.QMainWindow):
         ]
 
         images = []
-        for root, dirs, files in os.walk(folderPath):
-            for file in files:
-                if file.lower().endswith(tuple(extensions)):
-                    relativePath = os.path.normpath(osp.join(root, file))
-                    images.append(relativePath)
+        # for root, dirs, files in os.walk(folderPath):
+        for file in os.listdir(folderPath):
+            file_path = osp.join(folderPath, file)
+            # for file in files:
+            #     if file.lower().endswith(tuple(extensions)):
+            #         relativePath = os.path.normpath(osp.join(root, file))
+            #         images.append(relativePath)
+            if osp.isfile(file_path) and file.lower().endswith(tuple(extensions)):
+                images.append(file_path)
         images = natsort.os_sorted(images)
         return images

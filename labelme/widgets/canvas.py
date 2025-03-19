@@ -676,12 +676,9 @@ class Canvas(QtWidgets.QWidget):
         p.setRenderHint(QtGui.QPainter.Antialiasing)
         p.setRenderHint(QtGui.QPainter.HighQualityAntialiasing)
         p.setRenderHint(QtGui.QPainter.SmoothPixmapTransform)
-
         p.scale(self.scale, self.scale)
         p.translate(self.offsetToCenter())
-
         p.drawPixmap(0, 0, self.pixmap)
-
         p.scale(1 / self.scale, 1 / self.scale)
 
         # draw crosshair
