@@ -1953,7 +1953,7 @@ class MainWindow(QtWidgets.QMainWindow):
             fileName = fileDialog.selectedFiles()[0]
             if fileName:
                 self.loadFile(fileName)
-                logger.warning(f"bsg openfile end\n")
+                logger.warning(f"bsg openfile end end\n")
 
 
     def changeOutputDirDialog(self, _value=False):
