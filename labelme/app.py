@@ -17,6 +17,7 @@ from PyQt5 import QtCore
 from PyQt5 import QtGui
 from PyQt5 import QtWidgets
 from PyQt5.QtCore import Qt
+from PyQt5.QtWidgets import QVBoxLayout, QWidget, QMainWindow, QScrollBar
 
 from labelme import __appname__
 from labelme._automation import bbox_from_text
@@ -181,6 +182,20 @@ class MainWindow(QtWidgets.QMainWindow):
             Qt.Vertical: scrollArea.verticalScrollBar(),
             Qt.Horizontal: scrollArea.horizontalScrollBar(),
         }
+
+        self.scrollbar_dir = QtWidgets.QScrollBar(Qt.Horizontal)
+        self.scrollbar_dir.setVisible(False)
+
+        scrollContainer = QtWidgets.QWidget()
+        scrollLayout = QtWidgets.QVBoxLayout(scrollContainer)
+        scrollLayout.setContentsMargins(0, 0, 0, 0)
+        scrollLayout.setSpacing(0)
+        scrollLayout.addWidget(self.scrollbar_dir)  # 추가된 스크롤바
+        scrollLayout.addWidget(scrollArea)
+        self.scrollbar_dir.valueChanged.connect(self.updateFrame)
+
+        self.scrollBars["custom_horizontal"] = self.scrollbar_dir
+
         self.canvas.scrollRequest.connect(self.scrollRequest)
 
         self.canvas.newShape.connect(self.newShape)
@@ -188,7 +203,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.canvas.selectionChanged.connect(self.shapeSelectionChanged)
         self.canvas.drawingPolygon.connect(self.toggleDrawingSensitive)
 
-        self.setCentralWidget(scrollArea)
+        self.setCentralWidget(scrollContainer)
+        # self.setCentralWidget(scrollArea)
 
         features = QtWidgets.QDockWidget.DockWidgetFeatures()
         for dock in ["flag_dock", "label_dock", "shape_dock", "file_dock"]:
@@ -1278,6 +1294,7 @@ class MainWindow(QtWidgets.QMainWindow):
         )
 
     def fileSelectionChanged(self):
+        logger.info(f"bsg --------------- fileSelectionChanged \n")
         items = self.fileListWidget.selectedItems()
         if not items:
             return
@@ -2218,23 +2235,102 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.openNextImg()
 
+    # def importDirImages(self, dirpath, pattern=None, load=True):
+    #     logger.warning(f"bsg ################################\n")
+    #     self.actions.openNextImg.setEnabled(True)
+    #     self.actions.openPrevImg.setEnabled(True)
+    #     logger.warning(f"bsg importDirImages 00000000000000000000000\n")
+
+    #     if not self.mayContinue() or not dirpath:
+    #         return
+    #     logger.warning(f"bsg importDirImages 111111111111111111111111\n")
+
+    #     self.lastOpenDir = dirpath
+    #     self.filename = None
+    #     self.fileListWidget.clear()
+    #     logger.warning(f"bsg importDirImages 2222222222222222222222222\n")
+
+    #     filenames = self.scanAllImages(dirpath)
+    #     logger.warning(f"bsg importDirImages 3333333333333333333333333333\n")
+        
+    #     if pattern:
+    #         try:
+    #             filenames = [f for f in filenames if re.search(pattern, f)]
+    #         except re.error:
+    #             pass
+    #     logger.warning(f"bsg importDirImages 444444444444444444444444\n")
+        
+    #     if filenames:
+    #         logger.warning(f"bsg importDirImages 5555555555555555555\n")
+    #         self.scrollbar_dir.setVisible(True)
+    #         logger.warning(f"bsg importDirImages 66666666666666666666\n")
+    #         self.scrollbar_dir.setMaximum(len(filenames) - 1)
+    #         logger.warning(f"bsg importDirImages 77777777777777777777\n")
+    #     else:
+    #         logger.warning(f"bsg importDirImages 88888888888888888\n")
+    #         self.scrollbar_dir.setVisible(False)
+    #         logger.warning(f"bsg importDirImages 99999999999999999999\n")
+        
+    #     for filename in filenames:
+    #         label_file = osp.splitext(filename)[0] + ".json"
+    #         if self.output_dir:
+    #             label_file_without_path = osp.basename(label_file)
+    #             label_file = osp.join(self.output_dir, label_file_without_path)
+    #         item = QtWidgets.QListWidgetItem(filename)
+    #         item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
+    #         if QtCore.QFile.exists(label_file) and LabelFile.is_label_file(label_file):
+    #             item.setCheckState(Qt.Checked)
+    #         else:
+    #             item.setCheckState(Qt.Unchecked)
+    #         self.fileListWidget.addItem(item)
+    #     logger.warning(f"bsg importDirImages aaaaaaaaaaaaaaaaaaaaaaaaaaa\n")
+        
+    #     self.openNextImg(load=load)
+    #     logger.warning(f"bsg importDirImages bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n")
+    #     logger.warning(f"bsg ################################\n")
+
     def importDirImages(self, dirpath, pattern=None, load=True):
+        logger.warning(f"bsg ################################\n")
         self.actions.openNextImg.setEnabled(True)
         self.actions.openPrevImg.setEnabled(True)
+        logger.warning(f"bsg importDirImages 00000000000000000000000\n")
 
         if not self.mayContinue() or not dirpath:
             return
+        logger.warning(f"bsg importDirImages 111111111111111111111111\n")
 
         self.lastOpenDir = dirpath
         self.filename = None
         self.fileListWidget.clear()
+        logger.warning(f"bsg importDirImages 2222222222222222222222222\n")
 
         filenames = self.scanAllImages(dirpath)
+        logger.warning(f"bsg importDirImages 3333333333333333333333333333\n")
+
         if pattern:
             try:
                 filenames = [f for f in filenames if re.search(pattern, f)]
             except re.error:
                 pass
+        logger.warning(f"bsg importDirImages 444444444444444444444444\n")
+
+        if filenames:
+            logger.warning(f"bsg importDirImages 5555555555555555555\n")
+            self.image_frames = filenames  
+            self.scrollbar_dir.setVisible(True)
+            logger.warning(f"bsg importDirImages 66666666666666666666\n")
+            self.scrollbar_dir.setRange(0, len(filenames) - 1)  
+            self.scrollbar_dir.setValue(0) 
+            logger.warning(f"bsg importDirImages 77777777777777777777\n")
+            
+            self.scrollbar_dir.valueChanged.connect(self.updateFrame)
+            
+            self.updateFrame(0)
+        else:
+            logger.warning(f"bsg importDirImages 88888888888888888\n")
+            self.scrollbar_dir.setVisible(False)
+            logger.warning(f"bsg importDirImages 99999999999999999999\n")
+
         for filename in filenames:
             label_file = osp.splitext(filename)[0] + ".json"
             if self.output_dir:
@@ -2247,7 +2343,20 @@ class MainWindow(QtWidgets.QMainWindow):
             else:
                 item.setCheckState(Qt.Unchecked)
             self.fileListWidget.addItem(item)
+        logger.warning(f"bsg importDirImages aaaaaaaaaaaaaaaaaaaaaaaaaaa\n")
+
         self.openNextImg(load=load)
+        
+    def updateFrame(self, value):
+        # currIndex = self.imageList.index(str(item.text()))
+        if value < len(self.imageList):
+            filename = self.image_frames[value]
+            if filename:
+                self.loadFile(filename)
+        # if 0 <= value < len(self.image_frames):
+        #     image_path = self.image_frames[value]
+        #     pixmap = QtGui.QPixmap(image_path)
+        #     self.canvas.loadPixmap(pixmap)
 
     def scanAllImages(self, folderPath):
         extensions = [
