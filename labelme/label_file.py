@@ -25,32 +25,96 @@ def open(name, mode):
     yield io.open(name, mode, encoding=encoding)
     return
 
-#2025 03 18 bsg crop image
-def display_cropped_image(image_path, points,index,shape):
+#2025 03 20 bsg crop image polygon and background black jpg
+import os
+import cv2
+import numpy as np
+
+def display_cropped_image(image_path, points, index, shape, shape_type="polygon"):
     directory = os.path.dirname(image_path)
     file_name = os.path.basename(image_path)
-    directory_path = directory+"/crop_"+file_name[:-4]+"/"
-    directory_label_path = directory+"/crop_"+file_name[:-4]+"/"+shape+"/"
-    save_path = directory_label_path+"/crop_"+str(index)+"_"+file_name
-    if not os.path.exists(directory_path):
-        os.makedirs(directory_path)
-    if not os.path.exists(directory_label_path):
-        os.makedirs(directory_label_path)
-    image = cv2.imread(image_path)
+    directory_path = os.path.join(directory, f"crop_{file_name[:-4]}")
+    directory_label_path = os.path.join(directory_path, shape)
+    save_path = os.path.join(directory_label_path, f"crop_{index}_{file_name}")
 
+    # 디렉토리 생성
+    os.makedirs(directory_label_path, exist_ok=True)
+
+    # 이미지 로드
+    image = cv2.imread(image_path)
     if image is None:
-        print("no image file ", image_path)
+        print("no image file", image_path)
         return
 
+    # 다각형 좌표를 numpy 배열로 변환
     points = np.array(points, dtype=np.int32)
+
+    # 바운딩 박스 좌표 계산
     x_min, y_min = np.min(points, axis=0)
     x_max, y_max = np.max(points, axis=0)
 
-    cropped_image = image[y_min:y_max, x_min:x_max]
+    if shape_type == "rectangle":
+        # 기존 바운딩 박스 방식
+        cropped_image = image[y_min:y_max, x_min:x_max]
+    elif shape_type == "polygon":
+        # 다각형 마스킹 방식
+        mask = np.zeros(image.shape[:2], dtype=np.uint8)
+        cv2.fillPoly(mask, [points], 255)
+        masked_image = cv2.bitwise_and(image, image, mask=mask)
+        cropped_image = masked_image[y_min:y_max, x_min:x_max]
+    else:
+        print("Invalid shape_type! Use 'bbox' or 'polygon'.")
+        return
 
+    # 결과 저장
     cv2.imwrite(save_path, cropped_image)
-    print(f"crop image save in {save_path}")
-#2025 03 18 bsg crop image end 
+    print(f"crop image saved in {save_path}")
+
+#2025 03 20 bsg crop image polygon and background black jpg end
+
+#2025 03 20 bsg crop image polygon and background X png
+
+# def display_cropped_image(image_path, points, index, shape, shape_type="polygon"):
+#     directory = os.path.dirname(image_path)
+#     file_name = os.path.basename(image_path)
+#     directory_path = os.path.join(directory, f"crop_{file_name[:-4]}")
+#     directory_label_path = os.path.join(directory_path, shape)
+#     save_path = os.path.join(directory_label_path, f"crop_{index}_{file_name[:-4]}.png")  # PNG 저장
+
+#     os.makedirs(directory_label_path, exist_ok=True)
+
+#     image = cv2.imread(image_path, cv2.IMREAD_UNCHANGED)
+#     if image is None:
+#         print("no image file", image_path)
+#         return
+
+#     points = np.array(points, dtype=np.int32)
+
+#     # 다각형이 포함된 최소한의 사각형 계산
+#     x_min, y_min = np.min(points, axis=0)
+#     x_max, y_max = np.max(points, axis=0)
+
+#     if shape_type == "rectangle":
+#         cropped_image = image[y_min:y_max, x_min:x_max]
+#     elif shape_type == "polygon":
+#         # RGBA 변환 (투명도 추가)
+#         if image.shape[2] == 3:
+#             image = cv2.cvtColor(image, cv2.COLOR_BGR2BGRA)
+
+#         mask = np.zeros(image.shape[:2], dtype=np.uint8)
+#         cv2.fillPoly(mask, [points], 255)
+
+#         # 알파 채널에 마스크 적용 (투명 배경 만들기)
+#         image[:, :, 3] = mask
+#         cropped_image = image[y_min:y_max, x_min:x_max]
+#     else:
+#         print("Invalid shape_type! Use 'rectangle' or 'polygon'.")
+#         return
+
+#     cv2.imwrite(save_path, cropped_image)
+#     print(f"Transparent crop saved in {save_path}")
+
+#2025 03 20 bsg crop image polygon and background X png end
 
 class LabelFileError(Exception):
     pass
@@ -353,9 +417,9 @@ class LabelFile(object):
                         # data["imageWidth"],
                         # data["imageData"],
                     #2025 03 18 bsg rectangle crop
-                    if shape["shape_type"] == "rectangle":
-                        file_name = filename[:-4]+".jpg"
-                        display_cropped_image(file_name,points,index,shape["label"])
+                    # if shape["shape_type"] == "rectangle":
+                    file_name = filename[:-4]+".jpg"
+                    display_cropped_image(file_name,points,index,shape["label"],shape["shape_type"])
                     #2025 03 18 bsg rectangle crop end
             directory = os.path.dirname(file_name)
             file__name = os.path.basename(file_name)
