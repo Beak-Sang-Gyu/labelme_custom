@@ -26,10 +26,6 @@ def open(name, mode):
     return
 
 #2025 03 20 bsg crop image polygon and background black jpg
-import os
-import cv2
-import numpy as np
-
 def display_cropped_image(image_path, points, index, shape, shape_type="polygon"):
     directory = os.path.dirname(image_path)
     file_name = os.path.basename(image_path)
