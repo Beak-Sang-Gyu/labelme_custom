@@ -38,6 +38,9 @@ from labelme.widgets import ZoomWidget
 
 from . import utils
 
+import zipfile
+import cv2
+
 # FIXME
 # - [medium] Set max zoom value to something big enough for FitWidth/Window
 
@@ -281,6 +284,14 @@ class MainWindow(QtWidgets.QMainWindow):
             shortcuts["save_as"],
             "save-as",
             self.tr("Save labels to a different file"),
+            enabled=False,
+        )
+        export = action(
+            self.tr("&Export"),
+            self.exportFile,
+            shortcuts["export"],
+            "export",
+            self.tr("export labels to file"),
             enabled=False,
         )
 
@@ -649,6 +660,7 @@ class MainWindow(QtWidgets.QMainWindow):
             saveAuto=saveAuto,
             saveWithImageData=saveWithImageData,
             changeOutputDir=changeOutputDir,
+            export=export,
             save=save,
             saveAs=saveAs,
             open=open_,
@@ -855,6 +867,7 @@ class MainWindow(QtWidgets.QMainWindow):
             openPrevImg,
             openNextImg,
             save,
+            export,
             deleteFile,
             None,
             createMode,
@@ -1894,6 +1907,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
 
     def openPrevImg(self, _value=False):
+        logger.info("bsg ------------ openPrevImg \n")
         keep_prev = self._config["keep_prev"]
         if QtWidgets.QApplication.keyboardModifiers() == (
             Qt.ControlModifier | Qt.ShiftModifier
@@ -1912,9 +1926,9 @@ class MainWindow(QtWidgets.QMainWindow):
         currIndex = self.imageList.index(self.filename)
         if currIndex - 1 >= 0:
             filename = self.imageList[currIndex - 1]
+            self.scrollbar_dir.setValue(currIndex-1)
             if filename:
                 self.loadFile(filename)
-
 
         self._config["keep_prev"] = keep_prev
 
@@ -1934,8 +1948,10 @@ class MainWindow(QtWidgets.QMainWindow):
         filename = None
         if self.filename is None:
             filename = self.imageList[0]
+            self.scrollbar_dir.setValue(0)
         else:
             currIndex = self.imageList.index(self.filename)
+            self.scrollbar_dir.setValue(currIndex+1)
             if currIndex + 1 < len(self.imageList):
                 filename = self.imageList[currIndex + 1]
             else:
@@ -1946,6 +1962,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.loadFile(self.filename)
 
         self._config["keep_prev"] = keep_prev
+        # self.scrollbar_dir.setValue(min(currIndex, len(self.imageList) + 1))
 
     def openFile(self, _value=False):
         if not self.mayContinue():
@@ -2242,6 +2259,7 @@ class MainWindow(QtWidgets.QMainWindow):
     def importDirImages(self, dirpath, pattern=None, load=True):
         self.actions.openNextImg.setEnabled(True)
         self.actions.openPrevImg.setEnabled(True)
+        self.actions.export.setEnabled(True)
 
         if not self.mayContinue() or not dirpath:
             return
@@ -2310,3 +2328,147 @@ class MainWindow(QtWidgets.QMainWindow):
                 images.append(file_path)
         images = natsort.os_sorted(images)
         return images
+
+
+    #2025 03 20 bsg crop image polygon and background black jpg
+    def display_cropped_image(image_path, points, index, shape, shape_type="polygon"):
+        directory = os.path.dirname(image_path)
+        file_name = os.path.basename(image_path)
+        directory_path = os.path.join(directory, f"crop_{file_name[:-4]}")
+        directory_label_path = os.path.join(directory_path, shape)
+        save_path = os.path.join(directory_label_path, f"crop_{index}_{file_name}")
+
+        os.makedirs(directory_label_path, exist_ok=True)
+
+        image = cv2.imread(image_path)
+
+        if image is None:
+            print("no image file", image_path)
+            return
+
+        points = np.array(points, dtype=np.int32)
+
+        x_min, y_min = np.min(points, axis=0)
+        x_max, y_max = np.max(points, axis=0)
+
+        if shape_type == "rectangle":
+            cropped_image = image[y_min:y_max, x_min:x_max]
+        elif shape_type == "polygon":
+            mask = np.zeros(image.shape[:2], dtype=np.uint8)
+            cv2.fillPoly(mask, [points], 255)
+            masked_image = cv2.bitwise_and(image, image, mask=mask)
+            cropped_image = masked_image[y_min:y_max, x_min:x_max]
+        else:
+            print("Invalid shape_type! Use 'bbox' or 'polygon'.")
+            return
+
+        # 결과 저장
+        cv2.imwrite(save_path, cropped_image)
+        print(f"crop image saved in {save_path}")
+
+    #2025 03 20 bsg crop image polygon and background black jpg end
+
+    #2025 03 20 bsg crop image polygon and background X png
+
+    # def display_cropped_image(image_path, points, index, shape, shape_type="polygon"):
+    #     directory = os.path.dirname(image_path)
+    #     file_name = os.path.basename(image_path)
+    #     directory_path = os.path.join(directory, f"crop_{file_name[:-4]}")
+    #     directory_label_path = os.path.join(directory_path, shape)
+    #     save_path = os.path.join(directory_label_path, f"crop_{index}_{file_name[:-4]}.png")  # PNG 저장
+
+    #     os.makedirs(directory_label_path, exist_ok=True)
+
+    #     image = cv2.imread(image_path, cv2.IMREAD_UNCHANGED)
+    #     if image is None:
+    #         print("no image file", image_path)
+    #         return
+
+    #     points = np.array(points, dtype=np.int32)
+
+    #     # 다각형이 포함된 최소한의 사각형 계산
+    #     x_min, y_min = np.min(points, axis=0)
+    #     x_max, y_max = np.max(points, axis=0)
+
+    #     if shape_type == "rectangle":
+    #         cropped_image = image[y_min:y_max, x_min:x_max]
+    #     elif shape_type == "polygon":
+    #         # RGBA 변환 (투명도 추가)
+    #         if image.shape[2] == 3:
+    #             image = cv2.cvtColor(image, cv2.COLOR_BGR2BGRA)
+
+    #         mask = np.zeros(image.shape[:2], dtype=np.uint8)
+    #         cv2.fillPoly(mask, [points], 255)
+
+    #         # 알파 채널에 마스크 적용 (투명 배경 만들기)
+    #         image[:, :, 3] = mask
+    #         cropped_image = image[y_min:y_max, x_min:x_max]
+    #     else:
+    #         print("Invalid shape_type! Use 'rectangle' or 'polygon'.")
+    #         return
+
+    #     cv2.imwrite(save_path, cropped_image)
+    #     print(f"Transparent crop saved in {save_path}")
+
+    #2025 03 20 bsg crop image polygon and background X png end
+
+
+    def zip_dir(zip_name, dir_path):
+        zip_path = os.path.join(os.path.abspath(os.path.join(dir_path, os.pardir)), zip_name + '.zip')
+        new_zips = zipfile.ZipFile(zip_path, 'w')
+        dir_path = dir_path + '/'
+
+        for root, directory, files in os.walk(dir_path):
+            for file in files:
+                path = os.path.join(root, file)
+                new_zips.write(path, arcname=os.path.relpath(os.path.join(root, file), dir_path), compress_type=zipfile.ZIP_DEFLATED)
+
+        new_zips.close()
+
+    def exportFile(self):
+        self.process_files()
+        def format_shape(s):
+            data = s.other_data.copy()
+            data.update(
+                dict(
+                    label=s.label,
+                    points=[(p.x(), p.y()) for p in s.points],
+                    group_id=s.group_id,
+                    description=s.description,
+                    shape_type=s.shape_type,
+                    flags=s.flags,
+                    mask=None
+                    if s.mask is None
+                    else utils.img_arr_to_b64(s.mask.astype(np.uint8)),
+                )
+            )
+            return data
+
+        shapes = [format_shape(item.shape()) for item in self.labelList]
+        #2025 03 18 bsg rectangle crop
+        for i in range(len(shapes)):
+            converted_points = [list(map(int, p)) for p in shapes[i]["points"]]
+            self.display_cropped_image(
+                self.filename,
+                converted_points,
+                i,
+                shapes[i]["label"],
+                shapes[i]["shape_type"]
+            )
+
+        #2025 03 18 bsg rectangle crop end
+        directory = os.path.dirname(self.filename)
+        file__name = os.path.basename(self.filename)
+        directory_path = directory+"/crop_"+file__name[:-4]+"/"
+        if os.path.exists(directory_path):
+            self.zip_dir(directory_path[:-1],directory_path)
+
+    def process_files(self):
+        for filename in self.imageList:
+            logger.info(f"Processing file: {filename}")
+            directory = os.path.dirname(self.filename)
+            file__name = os.path.basename(self.filename)
+            directory_path = directory+"/crop_"+file__name[:-4]+"/"
+            if os.path.exists(directory_path):
+                self.zip_dir(directory_path[:-1],directory_path)
+                
