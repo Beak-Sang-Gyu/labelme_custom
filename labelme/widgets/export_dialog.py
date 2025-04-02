@@ -55,10 +55,8 @@ class ExportDialog(QDialog):  # 클래스 이름 변경
         self.setLayout(layout)
 
     def upload_file(self):
-        logger.info(f"bsg upload_file ______________________________________________________\n")
         selected_value = self.combo_box.currentText()
         Edit_filename = self.filename_input.text().strip()
-        logger.info(f"bsg upload_file ______________________ Edit_filename : {Edit_filename}\n")
         if self.main_window and selected_value==".zip":
             self.file_path=self.main_window.exportFile(Edit_filename)
             # self.file_path=self.main_window.exportFile()
@@ -80,7 +78,7 @@ class ExportDialog(QDialog):  # 클래스 이름 변경
             return
 
         try:
-            port = int(port)  # 포트는 정수 변환
+            port = int(port)
             with ftplib.FTP() as ftp:
                 ftp.connect(server, port)
                 ftp.login(username, password)
