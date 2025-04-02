@@ -2497,6 +2497,127 @@ class MainWindow(QtWidgets.QMainWindow):
         return zip_path
         # #2025 03 18 bsg rectangle crop end
 
+    def get_bbox_from_points(self, points):
+        """
+        LabelMe polygon 좌표를 COCO bbox 형식으로 변환
+        :param points: [(x1, y1), (x2, y2), ...] 형식의 리스트
+        :return: [x_min, y_min, width, height] 형식의 bbox
+        """
+        if not points or len(points) == 0:
+            logger.warning("bsg ------- get_bbox_from_points: No points found!")
+            return [0, 0, 0, 0]  # 빈 bbox 처리
+
+        x_coords = [p[0] for p in points]
+        y_coords = [p[1] for p in points]
+
+        x_min = min(x_coords)
+        y_min = min(y_coords)
+        width = max(x_coords) - x_min
+        height = max(y_coords) - y_min
+
+        bbox = [x_min, y_min, width, height]
+        logger.info(f"bsg ------- Calculated bbox: {bbox}")  # bbox 값 출력해서 확인
+
+        return bbox
+
+    def convert_labelme_to_coco(self, json_path, image_id, annotation_id):
+        logger.info(f"bsg ------- convert_labelme_to_coco \n")
+        with open(json_path, "r", encoding="utf-8") as f:
+            labelme_data = json.load(f)
+
+        logger.info(f"bsg ------- convert_labelme_to_coco 1111111111111111111 \n")
+        image_info = {
+            "id": image_id,
+            "file_name": labelme_data["imagePath"],
+            "width": labelme_data["imageWidth"],
+            "height": labelme_data["imageHeight"]
+        }
+        logger.info(f"bsg ------- convert_labelme_to_coco 222222222222222222 \n")
+
+        annotations = []
+        for shape in labelme_data["shapes"]:
+            logger.info(f"bsg ------- shape data: {json.dumps(shape, indent=2)}")  # shape 데이터 확인
+
+            if shape["shape_type"] != "polygon":  # polygon이 아닐 경우 건너뛰기
+                logger.warning(f"bsg ------- Skipping shape (not polygon): {shape['shape_type']}")
+                continue
+
+            bbox = self.get_bbox_from_points(shape["points"])  # bbox 계산
+
+            annotation = {
+                "id": annotation_id,
+                "image_id": image_id,
+                "category_id": 1,  # 필요에 따라 변경
+                "bbox": bbox,
+                "segmentation": [shape["points"]],
+                "iscrowd": 0  # COCO에서 polygon 방식일 때 iscrowd는 0
+            }
+            annotations.append(annotation)
+            annotation_id += 1
+
+        logger.info(f"bsg ------- convert_labelme_to_coco 3333333333333333333 \n")
+
+        categories = [{"id": 1, "name": "object"}]
+
+        return {
+            "image": image_info,
+            "annotations": annotations,
+            "categories": categories
+        }
+
+    def exportFile_coco(self, Edit_filename):
+        logger.info(f"bsg exportFile_coco 시작")
+
+        # COCO 형식의 기본 구조 정의
+        coco_output = {
+            "images": [],
+            "annotations": [],
+            "categories": [{"id": 1, "name": "object"}]
+        }
+
+        image_id = 1
+        annotation_id = 1
+
+        # COCO 데이터 저장 경로 설정
+        base_directory = os.path.join(os.path.dirname(self.filename), Edit_filename)
+        os.makedirs(base_directory, exist_ok=True)
+
+        image_directory = os.path.join(base_directory, "image")
+        os.makedirs(image_directory, exist_ok=True)
+
+        data_directory = os.path.join(base_directory, "data")
+        os.makedirs(data_directory, exist_ok=True)
+
+        for filename in self.imageList:
+            filename = os.path.normpath(filename)
+            file_name_only = os.path.basename(filename)
+
+            # JSON 파일 경로 설정
+            json_path = os.path.join(os.path.dirname(filename), os.path.splitext(file_name_only)[0] + ".json")
+
+            if os.path.exists(json_path):
+                logger.info(f"bsg JSON 변환 중: {json_path}")
+                coco_data = self.convert_labelme_to_coco(json_path, image_id, annotation_id)
+                coco_output["images"].append(coco_data["image"])
+                coco_output["annotations"].extend(coco_data["annotations"])
+
+                annotation_id += len(coco_data["annotations"])  # annotation_id 업데이트
+
+                # 원본 이미지 복사
+                dest_image_path = os.path.join(image_directory, file_name_only)
+                shutil.copy2(filename, dest_image_path)
+                logger.info(f"bsg 이미지 복사 완료: {dest_image_path}")
+
+                image_id += 1
+
+        # COCO JSON 저장
+        coco_json_path = os.path.join(data_directory, "coco_annotation.json")
+        with open(coco_json_path, "w", encoding="utf-8") as f:
+            json.dump(coco_output, f, indent=2)
+
+        logger.info(f"bsg COCO JSON 저장 완료: {coco_json_path}")
+
+
     def process_json(self, json_path,filename):
         json_path = os.path.abspath(json_path)
         save_json_directory = os.path.join(os.path.join(os.path.dirname(json_path),"Edit_Data"),"data")

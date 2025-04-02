@@ -61,6 +61,10 @@ class ExportDialog(QDialog):  # 클래스 이름 변경
             self.file_path=self.main_window.exportFile(Edit_filename)
             # self.file_path=self.main_window.exportFile()
             self.file_path=self.file_path+'.zip'
+        elif self.main_window and selected_value=="coco":
+            logger.info(f"bsg ------- uploadfile coco --------------\n")
+            self.main_window.exportFile_coco(Edit_filename)
+            logger.info(f"bsg ------- uploadfile coco -------------- end \n")
         if not selected_value==".zip":
             QMessageBox.warning(self, "오류", "아직 지원하지 않습니다.")
             return
