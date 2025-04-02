@@ -226,7 +226,8 @@ class LabelDialog(QtWidgets.QDialog):
             self.edit.completer().setCurrentRow(row)
         self.edit.setFocus(QtCore.Qt.PopupFocusReason)
         if move:
-            self.move(QtGui.QCursor.pos())
+            # self.move(QtGui.QCursor.pos())
+            self.move(2800,300)
         if self.exec_():
             return (
                 self.edit.text(),

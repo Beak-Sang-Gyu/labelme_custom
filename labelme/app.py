@@ -18,6 +18,7 @@ from PyQt5 import QtGui
 from PyQt5 import QtWidgets
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QVBoxLayout, QWidget, QMainWindow, QScrollBar
+from PyQt5.QtCore import QTimer
 
 from labelme import __appname__
 from labelme._automation import bbox_from_text
@@ -35,11 +36,15 @@ from labelme.widgets import LabelListWidgetItem
 from labelme.widgets import ToolBar
 from labelme.widgets import UniqueLabelQListWidget
 from labelme.widgets import ZoomWidget
+from labelme.widgets import ExportDialog
 
 from . import utils
 
 import zipfile
 import cv2
+import json
+import shutil
+
 
 # FIXME
 # - [medium] Set max zoom value to something big enough for FitWidth/Window
@@ -288,12 +293,25 @@ class MainWindow(QtWidgets.QMainWindow):
         )
         export = action(
             self.tr("&Export"),
-            self.exportFile,
+            self.openExportDialog,
             shortcuts["export"],
             "export",
             self.tr("export labels to file"),
             enabled=False,
         )
+        play_pause = action(
+            self.tr("&Play"),
+            self.toggle_play_pause,
+            shortcuts["play"],
+            "play",
+            self.tr("Automatically switch images at 0.5s intervals"),
+            enabled=False,
+        )
+        self.is_playing = False
+        
+        self.play_timer = QTimer(self)
+        self.play_timer.setInterval(25)
+        self.play_timer.timeout.connect(self.openNextImg)
 
         deleteFile = action(
             self.tr("&Delete File"),
@@ -314,12 +332,15 @@ class MainWindow(QtWidgets.QMainWindow):
 
         saveAuto = action(
             text=self.tr("Save &Automatically"),
-            slot=lambda x: self.actions.saveAuto.setChecked(x),
+            slot=self.updateSaveAutoLabel,
             icon="save",
             tip=self.tr("Save automatically"),
             checkable=True,
             enabled=True,
         )
+        # self.saveAuto.setCheckable(True)  # 체크 가능하도록 설정
+        # self.saveAuto.setChecked(False)
+        # slot=lambda x: self.actions.saveAuto.setChecked(x),
         saveAuto.setChecked(self._config["auto_save"])
 
         saveWithImageData = action(
@@ -661,6 +682,7 @@ class MainWindow(QtWidgets.QMainWindow):
             saveWithImageData=saveWithImageData,
             changeOutputDir=changeOutputDir,
             export=export,
+            play_pause=play_pause,
             save=save,
             saveAs=saveAs,
             open=open_,
@@ -868,6 +890,7 @@ class MainWindow(QtWidgets.QMainWindow):
             openNextImg,
             save,
             export,
+            play_pause,
             deleteFile,
             None,
             createMode,
@@ -992,6 +1015,7 @@ class MainWindow(QtWidgets.QMainWindow):
         utils.addActions(self.menus.edit, actions + self.actions.editMenu)
 
     def setDirty(self):
+        logger.info("bsg ----------setDirty!!!!\n")
         # Even if we autosave the file, we keep the ability to undo
         self.actions.undo.setEnabled(self.canvas.isShapeRestorable)
 
@@ -1322,6 +1346,7 @@ class MainWindow(QtWidgets.QMainWindow):
         currIndex = self.imageList.index(str(item.text()))
         if currIndex < len(self.imageList):
             filename = self.imageList[currIndex]
+            self.scrollbar_dir.setValue(currIndex)
             if filename:
                 self.loadFile(filename)
 
@@ -1686,6 +1711,8 @@ class MainWindow(QtWidgets.QMainWindow):
     def loadFile(self, filename=None):
         """Load the specified file, or the last opened file if None."""
         # changing fileListWidget loads file
+        logger.info("bsg ----------- loadfile\n")
+
         if filename in self.imageList and (
             self.fileListWidget.currentRow() != self.imageList.index(filename)
         ):
@@ -1933,6 +1960,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self._config["keep_prev"] = keep_prev
 
     def openNextImg(self, _value=False, load=True):
+        logger.info("bsg ----------- openNextImg\n")
+        logger.info(f"bsg ----------- openNextImg self.actions.saveAuto.isChecked : {self.actions.saveAuto.isChecked()}\n")
+        
         keep_prev = self._config["keep_prev"]
         if QtWidgets.QApplication.keyboardModifiers() == (
             Qt.ControlModifier | Qt.ShiftModifier
@@ -2134,6 +2164,7 @@ class MainWindow(QtWidgets.QMainWindow):
     def mayContinue(self):
         if not self.dirty:
             return True
+        logger.info(f"bsg ------------- self.dirty : {self.dirty}")
         mb = QtWidgets.QMessageBox
         msg = self.tr('Save annotations to "{}" before closing?').format(self.filename)
         answer = mb.question(
@@ -2260,6 +2291,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.actions.openNextImg.setEnabled(True)
         self.actions.openPrevImg.setEnabled(True)
         self.actions.export.setEnabled(True)
+        self.actions.play_pause.setEnabled(True)
 
         if not self.mayContinue() or not dirpath:
             return
@@ -2331,19 +2363,56 @@ class MainWindow(QtWidgets.QMainWindow):
 
 
     #2025 03 20 bsg crop image polygon and background black jpg
-    def display_cropped_image(image_path, points, index, shape, shape_type="polygon"):
+    # def display_cropped_image(self,image_path, points, index, shape, shape_type="polygon"):
+    #     directory = os.path.dirname(image_path)
+    #     file_name = os.path.basename(image_path)
+    #     directory_path = os.path.join(os.path.join(directory, f"Edit_Data"),f"image")
+    #     directory_label_path = os.path.join(directory_path, shape)
+    #     save_path = os.path.join(directory_label_path, f"crop_{index}_{file_name}")
+
+    #     os.makedirs(directory_label_path, exist_ok=True)
+
+    #     image = cv2.imread(image_path)
+
+    #     if image is None:
+    #         print("no image file", image_path)
+    #         return
+
+    #     points = np.array(points, dtype=np.int32)
+
+    #     x_min, y_min = np.min(points, axis=0)
+    #     x_max, y_max = np.max(points, axis=0)
+
+    #     if shape_type == "rectangle":
+    #         cropped_image = image[y_min:y_max, x_min:x_max]
+    #     elif shape_type == "polygon":
+    #         mask = np.zeros(image.shape[:2], dtype=np.uint8)
+    #         cv2.fillPoly(mask, [points], 255)
+    #         masked_image = cv2.bitwise_and(image, image, mask=mask)
+    #         cropped_image = masked_image[y_min:y_max, x_min:x_max]
+    #     else:
+    #         print("Invalid shape_type! Use 'bbox' or 'polygon'.")
+    #         return
+
+    #     # 결과 저장
+    #     cv2.imwrite(save_path, cropped_image)
+    #     print(f"crop image saved in {save_path}")
+
+    #2025 03 20 bsg crop image polygon and background black jpg end
+
+    def display_cropped_image(self, image_path, points, index, shape, shape_type="polygon"):
         directory = os.path.dirname(image_path)
         file_name = os.path.basename(image_path)
-        directory_path = os.path.join(directory, f"crop_{file_name[:-4]}")
+        directory_path = os.path.join(os.path.join(directory, f"Edit_Data"),f"image")
         directory_label_path = os.path.join(directory_path, shape)
         save_path = os.path.join(directory_label_path, f"crop_{index}_{file_name}")
-
+        
         os.makedirs(directory_label_path, exist_ok=True)
+        print(f"directory_label_path : {directory_label_path}\n")
 
-        image = cv2.imread(image_path)
-
+        image = cv2.imread(image_path, cv2.IMREAD_UNCHANGED)
         if image is None:
-            print("no image file", image_path)
+            print(f"no image file: {image_path}")
             return
 
         points = np.array(points, dtype=np.int32)
@@ -2353,70 +2422,32 @@ class MainWindow(QtWidgets.QMainWindow):
 
         if shape_type == "rectangle":
             cropped_image = image[y_min:y_max, x_min:x_max]
+        
         elif shape_type == "polygon":
+            if image.shape[2] == 3: 
+                image = cv2.cvtColor(image, cv2.COLOR_BGR2BGRA)
+
             mask = np.zeros(image.shape[:2], dtype=np.uint8)
             cv2.fillPoly(mask, [points], 255)
-            masked_image = cv2.bitwise_and(image, image, mask=mask)
-            cropped_image = masked_image[y_min:y_max, x_min:x_max]
+
+            image[:, :, 3] = mask
+            cropped_image = image[y_min:y_max, x_min:x_max]
         else:
-            print("Invalid shape_type! Use 'bbox' or 'polygon'.")
+            print("Invalid shape_type! Use 'rectangle' or 'polygon'.")
             return
 
-        # 결과 저장
         cv2.imwrite(save_path, cropped_image)
-        print(f"crop image saved in {save_path}")
+        print(f"Transparent crop saved in {save_path}")
 
-    #2025 03 20 bsg crop image polygon and background black jpg end
+    def zip_dir(self,dir_path):
+        logger.warning(f"bsg zip_dir ------------------- dir_path : {dir_path}\n")
 
-    #2025 03 20 bsg crop image polygon and background X png
+        zip_path = dir_path+".zip"
+        logger.warning(f"bsg zip_dir ------------------- zip_path : {zip_path}\n")
 
-    # def display_cropped_image(image_path, points, index, shape, shape_type="polygon"):
-    #     directory = os.path.dirname(image_path)
-    #     file_name = os.path.basename(image_path)
-    #     directory_path = os.path.join(directory, f"crop_{file_name[:-4]}")
-    #     directory_label_path = os.path.join(directory_path, shape)
-    #     save_path = os.path.join(directory_label_path, f"crop_{index}_{file_name[:-4]}.png")  # PNG 저장
-
-    #     os.makedirs(directory_label_path, exist_ok=True)
-
-    #     image = cv2.imread(image_path, cv2.IMREAD_UNCHANGED)
-    #     if image is None:
-    #         print("no image file", image_path)
-    #         return
-
-    #     points = np.array(points, dtype=np.int32)
-
-    #     # 다각형이 포함된 최소한의 사각형 계산
-    #     x_min, y_min = np.min(points, axis=0)
-    #     x_max, y_max = np.max(points, axis=0)
-
-    #     if shape_type == "rectangle":
-    #         cropped_image = image[y_min:y_max, x_min:x_max]
-    #     elif shape_type == "polygon":
-    #         # RGBA 변환 (투명도 추가)
-    #         if image.shape[2] == 3:
-    #             image = cv2.cvtColor(image, cv2.COLOR_BGR2BGRA)
-
-    #         mask = np.zeros(image.shape[:2], dtype=np.uint8)
-    #         cv2.fillPoly(mask, [points], 255)
-
-    #         # 알파 채널에 마스크 적용 (투명 배경 만들기)
-    #         image[:, :, 3] = mask
-    #         cropped_image = image[y_min:y_max, x_min:x_max]
-    #     else:
-    #         print("Invalid shape_type! Use 'rectangle' or 'polygon'.")
-    #         return
-
-    #     cv2.imwrite(save_path, cropped_image)
-    #     print(f"Transparent crop saved in {save_path}")
-
-    #2025 03 20 bsg crop image polygon and background X png end
-
-
-    def zip_dir(zip_name, dir_path):
-        zip_path = os.path.join(os.path.abspath(os.path.join(dir_path, os.pardir)), zip_name + '.zip')
         new_zips = zipfile.ZipFile(zip_path, 'w')
         dir_path = dir_path + '/'
+        logger.warning(f"bsg zip_dir ------------------- new_zips : {new_zips}\n")
 
         for root, directory, files in os.walk(dir_path):
             for file in files:
@@ -2425,50 +2456,117 @@ class MainWindow(QtWidgets.QMainWindow):
 
         new_zips.close()
 
-    def exportFile(self):
-        self.process_files()
-        def format_shape(s):
-            data = s.other_data.copy()
-            data.update(
-                dict(
-                    label=s.label,
-                    points=[(p.x(), p.y()) for p in s.points],
-                    group_id=s.group_id,
-                    description=s.description,
-                    shape_type=s.shape_type,
-                    flags=s.flags,
-                    mask=None
-                    if s.mask is None
-                    else utils.img_arr_to_b64(s.mask.astype(np.uint8)),
-                )
-            )
-            return data
+    def openExportDialog(self):
+        dialog = ExportDialog(self)
+        dialog.exec_()
+        
+    def exportFile(self,Edit_filename):
+        logger.warning(f"bsg exportfile exportfile exportfile exportfile exportfile exportfile exportfile exportfile\n")
+        for filename in self.imageList:
+            filename = os.path.normpath(filename)
+            directory = os.path.dirname(filename)
+            file__name = os.path.basename(filename)
 
-        shapes = [format_shape(item.shape()) for item in self.labelList]
-        #2025 03 18 bsg rectangle crop
-        for i in range(len(shapes)):
-            converted_points = [list(map(int, p)) for p in shapes[i]["points"]]
+            directory_path = os.path.join(directory, Edit_filename)
+            os.makedirs(directory_path, exist_ok=True)
+
+            directory_image_path = os.path.join(directory_path, f"image")
+            os.makedirs(directory_image_path, exist_ok=True)
+
+            directory_data_path = os.path.join(directory_path, f"data")
+            os.makedirs(directory_data_path, exist_ok=True)
+
+            json_path = os.path.join(directory, os.path.splitext(file__name)[0] + ".json")
+            csv_path = os.path.join(directory, os.path.splitext(file__name)[0] + ".csv")
+
+            json_path = os.path.normpath(json_path)
+            csv_path = os.path.normpath(csv_path)
+
+            json_exists = os.path.exists(json_path)
+            csv_exists = os.path.exists(csv_path)
+            
+            if json_exists or csv_exists:
+                if json_exists:
+                    self.process_json(json_path,filename)
+
+                if csv_exists:
+                    self.process_csv(csv_path)
+        zip_path = os.path.join(os.path.normpath(os.path.dirname(self.filename)),Edit_filename)
+        logger.warning(f"bsg export ------------------- zip_path : {zip_path}\n")
+        self.zip_dir(zip_path)
+        return zip_path
+        # #2025 03 18 bsg rectangle crop end
+
+    def process_json(self, json_path,filename):
+        json_path = os.path.abspath(json_path)
+        save_json_directory = os.path.join(os.path.join(os.path.dirname(json_path),"Edit_Data"),"data")
+
+        if not os.path.exists(json_path):
+            return
+
+        if os.path.getsize(json_path) == 0:
+            return
+
+        if os.path.exists(save_json_directory):
+            shutil.copy(json_path,save_json_directory)
+
+        try:
+            with open(json_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        except Exception as e:
+            return
+            
+        shapes = [self.format_shape(item) for item in data.get("shapes", [])]
+
+        for i, shape in enumerate(shapes):
+            converted_points = [list(map(int, p)) for p in shape["points"]]
             self.display_cropped_image(
-                self.filename,
+                filename,
                 converted_points,
                 i,
-                shapes[i]["label"],
-                shapes[i]["shape_type"]
+                shape["label"],
+                shape["shape_type"]
             )
 
-        #2025 03 18 bsg rectangle crop end
-        directory = os.path.dirname(self.filename)
-        file__name = os.path.basename(self.filename)
-        directory_path = directory+"/crop_"+file__name[:-4]+"/"
-        if os.path.exists(directory_path):
-            self.zip_dir(directory_path[:-1],directory_path)
+    def process_csv(self, csv_path):
+        pass
 
-    def process_files(self):
-        for filename in self.imageList:
-            logger.info(f"Processing file: {filename}")
-            directory = os.path.dirname(self.filename)
-            file__name = os.path.basename(self.filename)
-            directory_path = directory+"/crop_"+file__name[:-4]+"/"
-            if os.path.exists(directory_path):
-                self.zip_dir(directory_path[:-1],directory_path)
-                
+    def format_shape(self, s):
+        data = s.get("other_data", {}).copy()
+        data.update(
+            dict(
+                label=s.get("label"),
+                points=[(p[0], p[1]) for p in s.get("points", [])],
+                group_id=s.get("group_id"),
+                description=s.get("description"),
+                shape_type=s.get("shape_type"),
+                flags=s.get("flags"),
+                mask=None
+                if s.get("mask") is None
+                else utils.img_arr_to_b64(np.array(s.get("mask"), dtype=np.uint8)),
+            )
+        )
+        return data
+
+    def updateSaveAutoLabel(self):
+        x = self.actions.saveAuto.isChecked()
+        if x:
+            new_tip = self.tr("Save Automatically O")
+        else:
+            new_tip = self.tr("Save Automatically X")
+
+        self.actions.saveAuto.setText(new_tip)
+
+    def toggle_play_pause(self):
+        if self.is_playing:
+            new_text = self.tr("&Play")
+            self.play_timer.stop()
+        else:
+            new_text = self.tr("&Pause")
+            self.play_timer.start()
+
+        self.actions.play_pause.setText(new_text)
+        self.actions.play_pause.setIconText(new_text)
+        
+        self.is_playing = not self.is_playing
+
