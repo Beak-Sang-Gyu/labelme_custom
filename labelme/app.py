@@ -2362,54 +2362,19 @@ class MainWindow(QtWidgets.QMainWindow):
         return images
 
 
-    #2025 03 20 bsg crop image polygon and background black jpg
-    # def display_cropped_image(self,image_path, points, index, shape, shape_type="polygon"):
-    #     directory = os.path.dirname(image_path)
-    #     file_name = os.path.basename(image_path)
-    #     directory_path = os.path.join(os.path.join(directory, f"Edit_Data"),f"image")
-    #     directory_label_path = os.path.join(directory_path, shape)
-    #     save_path = os.path.join(directory_label_path, f"crop_{index}_{file_name}")
+    def display_cropped_image(self, image_path, save_path, points, index, shape, shape_type="polygon"):
+        print(f"display_cropped_image 실행")
 
-    #     os.makedirs(directory_label_path, exist_ok=True)
-
-    #     image = cv2.imread(image_path)
-
-    #     if image is None:
-    #         print("no image file", image_path)
-    #         return
-
-    #     points = np.array(points, dtype=np.int32)
-
-    #     x_min, y_min = np.min(points, axis=0)
-    #     x_max, y_max = np.max(points, axis=0)
-
-    #     if shape_type == "rectangle":
-    #         cropped_image = image[y_min:y_max, x_min:x_max]
-    #     elif shape_type == "polygon":
-    #         mask = np.zeros(image.shape[:2], dtype=np.uint8)
-    #         cv2.fillPoly(mask, [points], 255)
-    #         masked_image = cv2.bitwise_and(image, image, mask=mask)
-    #         cropped_image = masked_image[y_min:y_max, x_min:x_max]
-    #     else:
-    #         print("Invalid shape_type! Use 'bbox' or 'polygon'.")
-    #         return
-
-    #     # 결과 저장
-    #     cv2.imwrite(save_path, cropped_image)
-    #     print(f"crop image saved in {save_path}")
-
-    #2025 03 20 bsg crop image polygon and background black jpg end
-
-    def display_cropped_image(self, image_path, points, index, shape, shape_type="polygon"):
-        directory = os.path.dirname(image_path)
+        # 저장 경로 설정
+        directory_label_path = os.path.join(save_path, shape)
         file_name = os.path.basename(image_path)
-        directory_path = os.path.join(os.path.join(directory, f"Edit_Data"),f"image")
-        directory_label_path = os.path.join(directory_path, shape)
-        save_path = os.path.join(directory_label_path, f"crop_{index}_{file_name}")
-        
-        os.makedirs(directory_label_path, exist_ok=True)
-        print(f"directory_label_path : {directory_label_path}\n")
+        # save_file_path = os.path.join(directory_label_path, f"crop_{index}_{file_name[:-4]}.jpg")
+        save_file_path = os.path.join(directory_label_path, f"crop_{index}_{file_name[:-4]}.png")
 
+        os.makedirs(directory_label_path, exist_ok=True)
+        print(f"directory_label_path : {directory_label_path}")
+
+        # 이미지 읽기
         image = cv2.imread(image_path, cv2.IMREAD_UNCHANGED)
         if image is None:
             print(f"no image file: {image_path}")
@@ -2422,32 +2387,47 @@ class MainWindow(QtWidgets.QMainWindow):
 
         if shape_type == "rectangle":
             cropped_image = image[y_min:y_max, x_min:x_max]
-        
+
         elif shape_type == "polygon":
-            if image.shape[2] == 3: 
+            print("polygon 처리 중...")
+
+            # 알파 채널 추가 (없으면 BGRA로 변환)
+            if image.shape[2] == 3:
                 image = cv2.cvtColor(image, cv2.COLOR_BGR2BGRA)
 
+            # 마스크 생성 (배경: 0, polygon 내부: 255)
             mask = np.zeros(image.shape[:2], dtype=np.uint8)
             cv2.fillPoly(mask, [points], 255)
 
+            # 알파 채널에 마스크 적용 → polygon 내부만 보이게 설정
             image[:, :, 3] = mask
-            cropped_image = image[y_min:y_max, x_min:x_max]
-        else:
-            print("Invalid shape_type! Use 'rectangle' or 'polygon'.")
-            return
 
-        cv2.imwrite(save_path, cropped_image)
-        print(f"Transparent crop saved in {save_path}")
+            # polygon 영역만 크롭
+            cropped_image = image[y_min:y_max, x_min:x_max].copy()
+
+            #  배경 완전 투명 처리 (불필요한 부분 제거)
+            if save_file_path.endswith(".png"):
+                mask_crop = mask[y_min:y_max, x_min:x_max]
+                non_zero = np.where(mask_crop > 0)
+                if non_zero[0].size > 0 and non_zero[1].size > 0:
+                    y_min_crop, y_max_crop = non_zero[0].min(), non_zero[0].max()
+                    x_min_crop, x_max_crop = non_zero[1].min(), non_zero[1].max()
+                    cropped_image = cropped_image[y_min_crop:y_max_crop + 1, x_min_crop:x_max_crop + 1]
+            else:
+                background = np.ones_like(cropped_image[:, :, :3]) * 255  # 흰색 배경
+                alpha_channel = cropped_image[:, :, 3] / 255.0  # 0~1로 변환
+                for c in range(3):  # RGB 각 채널별 블렌딩
+                    background[:, :, c] = (cropped_image[:, :, c] * alpha_channel + background[:, :, c] * (1 - alpha_channel)).astype(np.uint8)
+                cropped_image = background  # 최종 이미지로 변경
+
+        # 이미지 저장 (투명 배경 유지)
+        cv2.imwrite(save_file_path, cropped_image)
+        print(f"Transparent crop saved in {save_file_path}")
 
     def zip_dir(self,dir_path):
-        logger.warning(f"bsg zip_dir ------------------- dir_path : {dir_path}\n")
-
         zip_path = dir_path+".zip"
-        logger.warning(f"bsg zip_dir ------------------- zip_path : {zip_path}\n")
-
         new_zips = zipfile.ZipFile(zip_path, 'w')
         dir_path = dir_path + '/'
-        logger.warning(f"bsg zip_dir ------------------- new_zips : {new_zips}\n")
 
         for root, directory, files in os.walk(dir_path):
             for file in files:
@@ -2461,7 +2441,6 @@ class MainWindow(QtWidgets.QMainWindow):
         dialog.exec_()
         
     def exportFile(self,Edit_filename):
-        logger.warning(f"bsg exportfile exportfile exportfile exportfile exportfile exportfile exportfile exportfile\n")
         for filename in self.imageList:
             filename = os.path.normpath(filename)
             directory = os.path.dirname(filename)
@@ -2469,13 +2448,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
             directory_path = os.path.join(directory, Edit_filename)
             os.makedirs(directory_path, exist_ok=True)
-
-            directory_image_path = os.path.join(directory_path, f"image")
-            os.makedirs(directory_image_path, exist_ok=True)
-
-            directory_data_path = os.path.join(directory_path, f"data")
-            os.makedirs(directory_data_path, exist_ok=True)
-
+            
             json_path = os.path.join(directory, os.path.splitext(file__name)[0] + ".json")
             csv_path = os.path.join(directory, os.path.splitext(file__name)[0] + ".csv")
 
@@ -2487,140 +2460,131 @@ class MainWindow(QtWidgets.QMainWindow):
             
             if json_exists or csv_exists:
                 if json_exists:
-                    self.process_json(json_path,filename)
+                    self.process_json(json_path,filename,directory_path)
 
                 if csv_exists:
                     self.process_csv(csv_path)
-        zip_path = os.path.join(os.path.normpath(os.path.dirname(self.filename)),Edit_filename)
-        logger.warning(f"bsg export ------------------- zip_path : {zip_path}\n")
-        self.zip_dir(zip_path)
-        return zip_path
+        
+        self.zip_dir(directory_path)
+        return directory_path
         # #2025 03 18 bsg rectangle crop end
 
-    def get_bbox_from_points(self, points):
-        """
-        LabelMe polygon 좌표를 COCO bbox 형식으로 변환
-        :param points: [(x1, y1), (x2, y2), ...] 형식의 리스트
-        :return: [x_min, y_min, width, height] 형식의 bbox
-        """
-        if not points or len(points) == 0:
-            logger.warning("bsg ------- get_bbox_from_points: No points found!")
-            return [0, 0, 0, 0]  # 빈 bbox 처리
+    # def get_bbox_from_points(self, points):
+    #     """
+    #     LabelMe polygon 좌표를 COCO bbox 형식으로 변환
+    #     :param points: [(x1, y1), (x2, y2), ...] 형식의 리스트
+    #     :return: [x_min, y_min, width, height] 형식의 bbox
+    #     """
+    #     if not points or len(points) == 0:
+    #         return [0, 0, 0, 0]  # 빈 bbox 처리
 
-        x_coords = [p[0] for p in points]
-        y_coords = [p[1] for p in points]
+    #     x_coords = [p[0] for p in points]
+    #     y_coords = [p[1] for p in points]
 
-        x_min = min(x_coords)
-        y_min = min(y_coords)
-        width = max(x_coords) - x_min
-        height = max(y_coords) - y_min
+    #     x_min = min(x_coords)
+    #     y_min = min(y_coords)
+    #     width = max(x_coords) - x_min
+    #     height = max(y_coords) - y_min
 
-        bbox = [x_min, y_min, width, height]
-        logger.info(f"bsg ------- Calculated bbox: {bbox}")  # bbox 값 출력해서 확인
+    #     bbox = [x_min, y_min, width, height]
+    #     return bbox
 
-        return bbox
+    # def convert_labelme_to_coco(self, json_path, image_id, annotation_id):
+    #     with open(json_path, "r", encoding="utf-8") as f:
+    #         labelme_data = json.load(f)
 
-    def convert_labelme_to_coco(self, json_path, image_id, annotation_id):
-        logger.info(f"bsg ------- convert_labelme_to_coco \n")
-        with open(json_path, "r", encoding="utf-8") as f:
-            labelme_data = json.load(f)
+    #     image_info = {
+    #         "id": image_id,
+    #         "file_name": labelme_data["imagePath"],
+    #         "width": labelme_data["imageWidth"],
+    #         "height": labelme_data["imageHeight"]
+    #     }
 
-        logger.info(f"bsg ------- convert_labelme_to_coco 1111111111111111111 \n")
-        image_info = {
-            "id": image_id,
-            "file_name": labelme_data["imagePath"],
-            "width": labelme_data["imageWidth"],
-            "height": labelme_data["imageHeight"]
-        }
-        logger.info(f"bsg ------- convert_labelme_to_coco 222222222222222222 \n")
+    #     annotations = []
+    #     for shape in labelme_data["shapes"]:
+    #         if shape["shape_type"] != "polygon":  # polygon이 아닐 경우 건너뛰기
+    #             logger.warning(f"bsg ------- Skipping shape (not polygon): {shape['shape_type']}")
+    #             continue
 
-        annotations = []
-        for shape in labelme_data["shapes"]:
-            logger.info(f"bsg ------- shape data: {json.dumps(shape, indent=2)}")  # shape 데이터 확인
+    #         bbox = self.get_bbox_from_points(shape["points"])  # bbox 계산
 
-            if shape["shape_type"] != "polygon":  # polygon이 아닐 경우 건너뛰기
-                logger.warning(f"bsg ------- Skipping shape (not polygon): {shape['shape_type']}")
-                continue
+    #         annotation = {
+    #             "id": annotation_id,
+    #             "image_id": image_id,
+    #             "category_id": 1,  # 필요에 따라 변경
+    #             "bbox": bbox,
+    #             "segmentation": [shape["points"]],
+    #             "iscrowd": 0  # COCO에서 polygon 방식일 때 iscrowd는 0
+    #         }
+    #         annotations.append(annotation)
+    #         annotation_id += 1
 
-            bbox = self.get_bbox_from_points(shape["points"])  # bbox 계산
+    #     categories = [{"id": 1, "name": "object"}]
 
-            annotation = {
-                "id": annotation_id,
-                "image_id": image_id,
-                "category_id": 1,  # 필요에 따라 변경
-                "bbox": bbox,
-                "segmentation": [shape["points"]],
-                "iscrowd": 0  # COCO에서 polygon 방식일 때 iscrowd는 0
-            }
-            annotations.append(annotation)
-            annotation_id += 1
+    #     return {
+    #         "image": image_info,
+    #         "annotations": annotations,
+    #         "categories": categories
+    #     }
 
-        logger.info(f"bsg ------- convert_labelme_to_coco 3333333333333333333 \n")
+    # def exportFile_coco(self, Edit_filename):
+    #     # COCO 형식의 기본 구조 정의
+    #     coco_output = {
+    #         "images": [],
+    #         "annotations": [],
+    #         "categories": [{"id": 1, "name": "object"}]
+    #     }
 
-        categories = [{"id": 1, "name": "object"}]
+    #     image_id = 1
+    #     annotation_id = 1
 
-        return {
-            "image": image_info,
-            "annotations": annotations,
-            "categories": categories
-        }
+    #     # COCO 데이터 저장 경로 설정
+    #     base_directory = os.path.join(os.path.dirname(self.filename), Edit_filename)
+    #     os.makedirs(base_directory, exist_ok=True)
 
-    def exportFile_coco(self, Edit_filename):
-        logger.info(f"bsg exportFile_coco 시작")
+    #     image_directory = os.path.join(base_directory, "image")
+    #     os.makedirs(image_directory, exist_ok=True)
 
-        # COCO 형식의 기본 구조 정의
-        coco_output = {
-            "images": [],
-            "annotations": [],
-            "categories": [{"id": 1, "name": "object"}]
-        }
+    #     data_directory = os.path.join(base_directory, "data")
+    #     os.makedirs(data_directory, exist_ok=True)
 
-        image_id = 1
-        annotation_id = 1
+    #     for filename in self.imageList:
+    #         filename = os.path.normpath(filename)
+    #         file_name_only = os.path.basename(filename)
 
-        # COCO 데이터 저장 경로 설정
-        base_directory = os.path.join(os.path.dirname(self.filename), Edit_filename)
-        os.makedirs(base_directory, exist_ok=True)
+    #         # JSON 파일 경로 설정
+    #         json_path = os.path.join(os.path.dirname(filename), os.path.splitext(file_name_only)[0] + ".json")
 
-        image_directory = os.path.join(base_directory, "image")
-        os.makedirs(image_directory, exist_ok=True)
+    #         if os.path.exists(json_path):
+    #             coco_data = self.convert_labelme_to_coco(json_path, image_id, annotation_id)
+    #             coco_output["images"].append(coco_data["image"])
+    #             coco_output["annotations"].extend(coco_data["annotations"])
+    #             annotation_id += len(coco_data["annotations"])  # annotation_id 업데이트
 
-        data_directory = os.path.join(base_directory, "data")
-        os.makedirs(data_directory, exist_ok=True)
+    #             # 원본 이미지 복사
+    #             dest_image_path = os.path.join(image_directory, file_name_only)
+    #             shutil.copy2(filename, dest_image_path)
+    #             image_id += 1
 
-        for filename in self.imageList:
-            filename = os.path.normpath(filename)
-            file_name_only = os.path.basename(filename)
+    #     # COCO JSON 저장
+    #     coco_json_path = os.path.join(data_directory, "coco_annotation.json")
+    #     with open(coco_json_path, "w", encoding="utf-8") as f:
+    #         json.dump(coco_output, f, indent=2)
 
-            # JSON 파일 경로 설정
-            json_path = os.path.join(os.path.dirname(filename), os.path.splitext(file_name_only)[0] + ".json")
-
-            if os.path.exists(json_path):
-                logger.info(f"bsg JSON 변환 중: {json_path}")
-                coco_data = self.convert_labelme_to_coco(json_path, image_id, annotation_id)
-                coco_output["images"].append(coco_data["image"])
-                coco_output["annotations"].extend(coco_data["annotations"])
-
-                annotation_id += len(coco_data["annotations"])  # annotation_id 업데이트
-
-                # 원본 이미지 복사
-                dest_image_path = os.path.join(image_directory, file_name_only)
-                shutil.copy2(filename, dest_image_path)
-                logger.info(f"bsg 이미지 복사 완료: {dest_image_path}")
-
-                image_id += 1
-
-        # COCO JSON 저장
-        coco_json_path = os.path.join(data_directory, "coco_annotation.json")
-        with open(coco_json_path, "w", encoding="utf-8") as f:
-            json.dump(coco_output, f, indent=2)
-
-        logger.info(f"bsg COCO JSON 저장 완료: {coco_json_path}")
+    #     zip_path = os.path.join(os.path.normpath(os.path.dirname(self.filename)),Edit_filename)
+    #     self.zip_dir(zip_path)
+    #     return zip_path+".zip"
 
 
-    def process_json(self, json_path,filename):
+
+    def process_json(self, json_path,filename,directory_path):
         json_path = os.path.abspath(json_path)
-        save_json_directory = os.path.join(os.path.join(os.path.dirname(json_path),"Edit_Data"),"data")
+
+        directory_image_path = os.path.join(directory_path, f"image")
+        os.makedirs(directory_image_path, exist_ok=True)
+
+        directory_data_path = os.path.join(directory_path, f"data")
+        os.makedirs(directory_data_path, exist_ok=True)
 
         if not os.path.exists(json_path):
             return
@@ -2628,8 +2592,8 @@ class MainWindow(QtWidgets.QMainWindow):
         if os.path.getsize(json_path) == 0:
             return
 
-        if os.path.exists(save_json_directory):
-            shutil.copy(json_path,save_json_directory)
+        if os.path.exists(directory_data_path):
+            shutil.copy(json_path,directory_data_path)
 
         try:
             with open(json_path, "r", encoding="utf-8") as f:
@@ -2643,6 +2607,7 @@ class MainWindow(QtWidgets.QMainWindow):
             converted_points = [list(map(int, p)) for p in shape["points"]]
             self.display_cropped_image(
                 filename,
+                directory_image_path,
                 converted_points,
                 i,
                 shape["label"],
