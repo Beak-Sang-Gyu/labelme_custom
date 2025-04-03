@@ -17,7 +17,7 @@ from PyQt5 import QtCore
 from PyQt5 import QtGui
 from PyQt5 import QtWidgets
 from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import QVBoxLayout, QWidget, QMainWindow, QScrollBar
+from PyQt5.QtWidgets import QVBoxLayout, QWidget, QMainWindow, QScrollBar, QStatusBar
 from PyQt5.QtCore import QTimer
 
 from labelme import __appname__
@@ -116,6 +116,9 @@ class MainWindow(QtWidgets.QMainWindow):
             fit_to_content=self._config["fit_to_content"],
             flags=self._config["label_flags"],
         )
+        self.status_bar = QStatusBar()
+        self.setStatusBar(self.status_bar)
+        self.status_bar.showMessage("준비 완료", 3000)
 
         self.labelList = LabelListWidget()
         self.lastOpenDir = None
@@ -2363,7 +2366,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
 
     def display_cropped_image(self, image_path, save_path, points, index, shape, shape_type="polygon"):
-        print(f"display_cropped_image 실행")
+        # print(f"display_cropped_image 실행")
 
         # 저장 경로 설정
         directory_label_path = os.path.join(save_path, shape)
@@ -2372,7 +2375,7 @@ class MainWindow(QtWidgets.QMainWindow):
         save_file_path = os.path.join(directory_label_path, f"crop_{index}_{file_name[:-4]}.png")
 
         os.makedirs(directory_label_path, exist_ok=True)
-        print(f"directory_label_path : {directory_label_path}")
+        # print(f"directory_label_path : {directory_label_path}")
 
         # 이미지 읽기
         image = cv2.imread(image_path, cv2.IMREAD_UNCHANGED)
@@ -2389,7 +2392,7 @@ class MainWindow(QtWidgets.QMainWindow):
             cropped_image = image[y_min:y_max, x_min:x_max]
 
         elif shape_type == "polygon":
-            print("polygon 처리 중...")
+            # print("polygon 처리 중...")
 
             # 알파 채널 추가 (없으면 BGRA로 변환)
             if image.shape[2] == 3:
@@ -2595,6 +2598,9 @@ class MainWindow(QtWidgets.QMainWindow):
         if os.path.exists(directory_data_path):
             shutil.copy(json_path,directory_data_path)
 
+        if os.path.exists(directory_image_path):
+            shutil.copy(filename,directory_image_path)
+
         try:
             with open(json_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
@@ -2655,4 +2661,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.actions.play_pause.setIconText(new_text)
         
         self.is_playing = not self.is_playing
+
+    def show_status_log(self, message, timeout=2000):
+        self.status_bar.showMessage(message, timeout)
 

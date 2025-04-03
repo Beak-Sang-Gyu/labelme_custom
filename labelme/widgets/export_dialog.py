@@ -70,10 +70,7 @@ class ExportDialog(QDialog):
                 logger.info("FTP 연결 성공")
 
                 remote_base_path = "/home2/dataset/data"
-                dataset_exporter = DatasetExporter(ftp, remote_base_path)
-
-                for folder in ["images", "annotations", "archive", "origin"]:
-                    dataset_exporter.create_remote_directory(folder)
+                dataset_exporter = DatasetExporter(ftp, remote_base_path,self.main_window)
 
                 local_dataset_path = self.main_window.exportFile(edit_filename)
 
