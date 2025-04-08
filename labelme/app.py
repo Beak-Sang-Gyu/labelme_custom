@@ -1714,14 +1714,19 @@ class MainWindow(QtWidgets.QMainWindow):
     def loadFile(self, filename=None):
         """Load the specified file, or the last opened file if None."""
         # changing fileListWidget loads file
-        logger.info("bsg ----------- loadfile\n")
-
         if filename in self.imageList and (
             self.fileListWidget.currentRow() != self.imageList.index(filename)
         ):
             self.fileListWidget.setCurrentRow(self.imageList.index(filename))
             self.fileListWidget.repaint()
             return
+        if not filename in self.imageList:
+            self.fileListWidget.clear()
+            self.actions.openNextImg.setEnabled(False)
+            self.actions.openPrevImg.setEnabled(False)
+            self.actions.export.setEnabled(False)
+            self.actions.play_pause.setEnabled(False)
+            self.scrollbar_dir.setVisible(False)
 
         self.resetState()
         self.canvas.setEnabled(False)
@@ -1807,9 +1812,11 @@ class MainWindow(QtWidgets.QMainWindow):
             if self.labelFile.flags is not None:
                 flags.update(self.labelFile.flags)
         self.loadFlags(flags)
+
         if self._config["keep_prev"] and self.noShapes():
             self.loadShapes(prev_shapes, replace=False)
-            self.setDirty()
+            if self.canvas.shapes:
+                self.setDirty()
         else:
             self.setClean()
         self.canvas.setEnabled(True)
@@ -1995,9 +2002,9 @@ class MainWindow(QtWidgets.QMainWindow):
             self.loadFile(self.filename)
 
         self._config["keep_prev"] = keep_prev
-        # self.scrollbar_dir.setValue(min(currIndex, len(self.imageList) + 1))
 
     def openFile(self, _value=False):
+        logger.warning(f"bsg openfile start start start start\n")
         if not self.mayContinue():
             return
         path = osp.dirname(str(self.filename)) if self.filename else "."
@@ -2022,6 +2029,8 @@ class MainWindow(QtWidgets.QMainWindow):
         if fileDialog.exec_():
             fileName = fileDialog.selectedFiles()[0]
             if fileName:
+                self.fileListWidget.setCurrentRow(-1)
+                self.fileListWidget.repaint()
                 self.loadFile(fileName)
                 logger.warning(f"bsg openfile end end\n")
 
