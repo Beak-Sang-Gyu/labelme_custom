@@ -66,7 +66,7 @@ class ExportDialog(QDialog):
             with ftplib.FTP() as ftp:
                 ftp.connect(ftp_config["server"], int(ftp_config["port"]))
                 ftp.login(ftp_config["username"], ftp_config["password"])
-                ftp.set_pasv(False)
+                ftp.set_pasv(True)
                 logger.info("FTP 연결 성공")
 
                 remote_base_path = "/home2/dataset/data"

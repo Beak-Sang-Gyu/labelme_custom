@@ -1018,7 +1018,6 @@ class MainWindow(QtWidgets.QMainWindow):
         utils.addActions(self.menus.edit, actions + self.actions.editMenu)
 
     def setDirty(self):
-        logger.info("bsg ----------setDirty!!!!\n")
         # Even if we autosave the file, we keep the ability to undo
         self.actions.undo.setEnabled(self.canvas.isShapeRestorable)
 
@@ -1971,7 +1970,6 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def openNextImg(self, _value=False, load=True):
         logger.info("bsg ----------- openNextImg\n")
-        logger.info(f"bsg ----------- openNextImg self.actions.saveAuto.isChecked : {self.actions.saveAuto.isChecked()}\n")
         
         keep_prev = self._config["keep_prev"]
         if QtWidgets.QApplication.keyboardModifiers() == (
@@ -2032,7 +2030,6 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.fileListWidget.setCurrentRow(-1)
                 self.fileListWidget.repaint()
                 self.loadFile(fileName)
-                logger.warning(f"bsg openfile end end\n")
 
 
     def changeOutputDirDialog(self, _value=False):
@@ -2176,7 +2173,6 @@ class MainWindow(QtWidgets.QMainWindow):
     def mayContinue(self):
         if not self.dirty:
             return True
-        logger.info(f"bsg ------------- self.dirty : {self.dirty}")
         mb = QtWidgets.QMessageBox
         msg = self.tr('Save annotations to "{}" before closing?').format(self.filename)
         answer = mb.question(
