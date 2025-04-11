@@ -39,6 +39,9 @@ class LabelFile(object):
             LabelFile.suffix=".csv"
         if filename is not None:
             self.load(filename)
+            self.labelPath=osp.dirname(osp.dirname(osp.dirname(filename)))
+        else:
+            self.labelPath=None
         self.filename = filename
 
     @staticmethod
@@ -81,7 +84,6 @@ class LabelFile(object):
             "description",
             "mask",
         ]
-
         if not os.path.exists(filename):
             return
         #2025 03 14 load seperate .json and .csv
@@ -93,8 +95,10 @@ class LabelFile(object):
                 if data["imageData"] is not None:
                     imageData = base64.b64decode(data["imageData"])
                 else:
+                    self.labelPath=osp.dirname(osp.dirname(osp.dirname(filename)))
                     # relative path from label file to relative path from cwd
-                    imagePath = osp.join(osp.dirname(filename), data["imagePath"])
+                    imagePath = self.labelPath+data["imagePath"]
+                    imagePath=os.path.normpath(imagePath)
                     imageData = self.load_image_file(imagePath)
                 flags = data.get("flags") or {}
                 imagePath = data["imagePath"]
@@ -133,14 +137,6 @@ class LabelFile(object):
             self.imageData = imageData
             self.filename = filename
             self.otherData = otherData
-            # logger.warning(f"bsg json ###################################################\n")
-            # logger.warning(f"bsg ------------------- self.flags | {self.flags}")
-            # logger.warning(f"bsg ------------------- self.shapes | {self.shapes}")
-            # logger.warning(f"bsg ------------------- self.imagePath | {self.imagePath}")
-            # logger.warning(f"bsg ------------------- self.imageData | {self.imageData}")
-            # logger.warning(f"bsg ------------------- self.filename | {self.filename}")
-            # logger.warning(f"bsg ------------------- self.otherData | {self.otherData}")
-            # logger.warning(f"bsg ###################################################\n")
         elif LabelFile.suffix==".csv":
             try:
                 with open(filename, "r") as f:
@@ -176,13 +172,6 @@ class LabelFile(object):
 
                         if not imagePath:
                             imagePath = row["imagePath"]
-                        # if not imageHeight:
-                        #     imageHeight = int(row["imageHeight"]) if row["imageHeight"] else None
-                        # if not imageWidth:
-                        #     imageWidth = int(row["imageWidth"]) if row["imageWidth"] else None
-                        # if not imageData and row["imageData"]:
-                        #     imageData = base64.b64decode(row["imageData"])
-                        # else : 
                         imagePath = osp.join(osp.dirname(filename), imagePath)
                         imageData = self.load_image_file(imagePath)
 
@@ -199,16 +188,6 @@ class LabelFile(object):
             self.imageWidth = None
             self.filename = filename
             self.otherData = {}
-            # logger.warning(f"bsg csv ###################################################\n")
-            # logger.warning(f"bsg ------------------- self.flags | {self.flags}")
-            # logger.warning(f"bsg ------------------- self.shapes | {self.shapes}")
-            # logger.warning(f"bsg ------------------- self.imagePath | {self.imagePath}")
-            # logger.warning(f"bsg ------------------- self.imageData | {self.imageData}")
-            # logger.warning(f"bsg ------------------- self.imageHeight | {self.imageHeight}")
-            # logger.warning(f"bsg ------------------- self.imageWidth | {self.imageWidth}")
-            # logger.warning(f"bsg ------------------- self.filename | {self.filename}")
-            # logger.warning(f"bsg ------------------- self.otherData | {self.otherData}")
-            # logger.warning(f"bsg ###################################################\n")        
         #2025 03 14 load seperate .json and .csv end 
 
     @staticmethod
@@ -239,8 +218,7 @@ class LabelFile(object):
         otherData=None,
         flags=None,
     ):
-
-        logger.warning(f"bsg  save save save save save save save save\n") 
+        logger.info(f"bsg -------------- save -------------------- filename : {filename}\n")
         if imageData is not None:
             imageData = base64.b64encode(imageData).decode("utf-8")
             imageHeight, imageWidth = self._check_image_height_and_width(

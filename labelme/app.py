@@ -36,7 +36,7 @@ from labelme.widgets import LabelListWidgetItem
 from labelme.widgets import ToolBar
 from labelme.widgets import UniqueLabelQListWidget
 from labelme.widgets import ZoomWidget
-from labelme.widgets import ExportDialog
+from labelme.DataSetExporter import DatasetExporter
 
 from . import utils
 
@@ -44,7 +44,7 @@ import zipfile
 import cv2
 import json
 import shutil
-
+import glob
 
 # FIXME
 # - [medium] Set max zoom value to something big enough for FitWidth/Window
@@ -938,10 +938,15 @@ class MainWindow(QtWidgets.QMainWindow):
             Qt.Vertical: {},
         }  # key=filename, value=scroll_value
 
-        if filename is not None and osp.isdir(filename):
-            self.importDirImages(filename, load=False)
-        else:
+        if filename is not None:
+            if osp.isdir(filename):
+                self.importDirImages(filename, load=False)
+            else:
+                self.filename = filename
+            self.labelPath=osp.dirname(osp.dirname(osp.dirname(filename)))
+        else :
             self.filename = filename
+            self.labelPath=None
 
         if config["file_search"]:
             self.fileSearch.setText(config["file_search"])
@@ -1022,7 +1027,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.actions.undo.setEnabled(self.canvas.isShapeRestorable)
 
         if self._config["auto_save"] or self.actions.saveAuto.isChecked():
-            label_file = osp.splitext(self.imagePath)[0] + ".json"
+            label_file = self.labelPath+"/annotations/labelme_jsons/"+osp.basename(self.imagePath)[:-4] + ".json"
             if self.output_dir:
                 label_file_without_path = osp.basename(label_file)
                 label_file = osp.join(self.output_dir, label_file_without_path)
@@ -1514,8 +1519,9 @@ class MainWindow(QtWidgets.QMainWindow):
             flag = item.checkState() == Qt.Checked
             flags[key] = flag
         try:
-            imagePath = osp.relpath(self.imagePath, osp.dirname(filename))
-            imageData = self.imageData if self._config["store_data"] else None
+            imagePath = "\\"+os.path.relpath(self.imagePath, self.labelPath)
+            imageData = None
+            # imageData = self.imageData if self._config["store_data"] else None
             if osp.dirname(filename) and not osp.exists(osp.dirname(filename)):
                 os.makedirs(osp.dirname(filename))
             lf.save(
@@ -1733,16 +1739,44 @@ class MainWindow(QtWidgets.QMainWindow):
             filename = self.settings.value("filename", "")
         filename = str(filename)
         # 2025 03 18 bsg recognize mp4
-        if filename.endswith(".mp4"):
-            directory_path = filename[:-4]
-            if os.path.exists(directory_path) and os.path.isdir(directory_path):
-                self.importDirImages(directory_path)
-                return True
-            else :
-                os.system('video-toimg '+filename)
-                self.importDirImages(directory_path)
-                return True
+        # if filename.endswith(".mp4"):
+        #     directory_path = filename[:-4]
+        #     if os.path.exists(directory_path) and os.path.isdir(directory_path):
+        #         self.importDirImages(directory_path)
+        #         return True
+        #     else :
+        #         os.system('video-toimg '+filename)
+        #         self.importDirImages(directory_path)
+        #         return True
         # 2025 03 18 bsg recognize mp4 end
+        if filename.endswith(".mp4"):
+            base_dir = os.path.dirname(filename)  # 예: Z:/data
+            video_name = os.path.splitext(os.path.basename(filename))[0]  # 예: 9531464-uhd_4096_2160_25fps
+            directory_path = os.path.join(base_dir, video_name)  # 예: Z:/data/9531464-uhd_4096_2160_25fps
+
+            # 필요한 디렉토리 구조 자동 생성
+            origins_images_dir = os.path.join(directory_path, 'origins', 'images')
+            annotations_coco_dir = os.path.join(directory_path, 'annotations', 'coco')
+            annotations_labelme_dir = os.path.join(directory_path, 'annotations', 'labelme_jsons')
+            archive_dir = os.path.join(directory_path, 'archive')
+            images_dir = os.path.join(directory_path, 'images')
+
+            for path in [origins_images_dir, annotations_coco_dir, annotations_labelme_dir, archive_dir, images_dir]:
+                os.makedirs(path, exist_ok=True)
+
+            if os.path.exists(origins_images_dir) and len(os.listdir(origins_images_dir)) > 0:
+                self.importDirImages(origins_images_dir)
+                return True
+            else:
+                # video-toimg 실행해서 origins/images 안에 프레임 저장
+                os.system(f'video-toimg "{filename}"')
+                default_image_dir = os.path.join(directory_path)  # video-toimg가 여기에 저장한다고 가정
+                image_files = glob.glob(os.path.join(default_image_dir, "*.jpg"))  # 또는 png 등
+
+                for img_file in image_files:
+                    shutil.move(img_file, os.path.join(origins_images_dir, os.path.basename(img_file)))
+                self.importDirImages(origins_images_dir)
+                return True
 
         if not QtCore.QFile.exists(filename):
             self.errorMessage(
@@ -1752,10 +1786,12 @@ class MainWindow(QtWidgets.QMainWindow):
             return False
         # assumes same name, but json extension
         self.status(str(self.tr("Loading %s...")) % osp.basename(str(filename)))
-        label_file = osp.splitext(filename)[0] + ".json"
-        if not QtCore.QFile.exists(label_file):
-            label_file = osp.splitext(filename)[0] + ".csv"
-        
+        self.labelPath=osp.dirname(osp.dirname(osp.dirname(filename)))
+        label_file = self.labelPath + "/annotations/labelme_jsons/"+osp.basename(filename)[:-4]+".json"
+        # label_file = osp.splitext(filename)[0] + ".json"
+        # if not QtCore.QFile.exists(label_file):
+        #     label_file = osp.splitext(filename)[0] + ".csv"
+        label_file_without_path = osp.basename(label_file)
         if self.output_dir:
             label_file_without_path = osp.basename(label_file)
             label_file = osp.join(self.output_dir, label_file_without_path)
@@ -1775,10 +1811,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.status(self.tr("Error reading %s") % label_file)
                 return False
             self.imageData = self.labelFile.imageData
-            self.imagePath = osp.join(
-                osp.dirname(label_file),
-                self.labelFile.imagePath,
-            )
+            self.imagePath = osp.normpath(self.labelPath+self.labelFile.imagePath)
             self.otherData = self.labelFile.otherData
         else:
             self.imageData = LabelFile.load_image_file(filename)
@@ -1943,7 +1976,6 @@ class MainWindow(QtWidgets.QMainWindow):
 
 
     def openPrevImg(self, _value=False):
-        logger.info("bsg ------------ openPrevImg \n")
         keep_prev = self._config["keep_prev"]
         if QtWidgets.QApplication.keyboardModifiers() == (
             Qt.ControlModifier | Qt.ShiftModifier
@@ -1969,7 +2001,6 @@ class MainWindow(QtWidgets.QMainWindow):
         self._config["keep_prev"] = keep_prev
 
     def openNextImg(self, _value=False, load=True):
-        logger.info("bsg ----------- openNextImg\n")
         
         keep_prev = self._config["keep_prev"]
         if QtWidgets.QApplication.keyboardModifiers() == (
@@ -2002,7 +2033,6 @@ class MainWindow(QtWidgets.QMainWindow):
         self._config["keep_prev"] = keep_prev
 
     def openFile(self, _value=False):
-        logger.warning(f"bsg openfile start start start start\n")
         if not self.mayContinue():
             return
         path = osp.dirname(str(self.filename)) if self.filename else "."
@@ -2445,9 +2475,15 @@ class MainWindow(QtWidgets.QMainWindow):
         new_zips.close()
 
     def openExportDialog(self):
-        dialog = ExportDialog(self)
-        dialog.exec_()
-        
+        # dialog = ExportDialog(self)
+        # dialog.exec_()
+        exporter = DatasetExporter(self)
+        success = exporter.export()
+        if success:
+            print("로컬 데이터셋 Export 완료!")
+        else:
+            print("Export 실패.")
+
     def exportFile(self,Edit_filename):
         for filename in self.imageList:
             filename = os.path.normpath(filename)
@@ -2511,7 +2547,6 @@ class MainWindow(QtWidgets.QMainWindow):
     #     annotations = []
     #     for shape in labelme_data["shapes"]:
     #         if shape["shape_type"] != "polygon":  # polygon이 아닐 경우 건너뛰기
-    #             logger.warning(f"bsg ------- Skipping shape (not polygon): {shape['shape_type']}")
     #             continue
 
     #         bbox = self.get_bbox_from_points(shape["points"])  # bbox 계산

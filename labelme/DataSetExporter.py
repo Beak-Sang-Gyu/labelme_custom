@@ -1,14 +1,18 @@
 import os
-import ftplib
 import json
+import shutil
+import time
+import zipfile
+from PIL import Image, ImageDraw
 from loguru import logger
 from PyQt5.QtWidgets import QApplication
+from datetime import datetime
 
 class DatasetExporter:
-    def __init__(self, ftp, remote_base_path, main_window=None):
-        self.ftp = ftp
-        self.remote_base_path = remote_base_path.rstrip('/')
+    def __init__(self, main_window):
         self.main_window = main_window
+        # labelPath 끝의 슬래시 제거
+        self.labelPath = main_window.labelPath.rstrip(os.sep)
 
     def log(self, message, warning=False, error=False):
         if warning:
@@ -17,160 +21,174 @@ class DatasetExporter:
             logger.error(message)
         else:
             logger.info(message)
-
         if self.main_window:
+            # 상태바에 메시지 표시
             self.main_window.status_bar.showMessage(message, 5000)
             QApplication.processEvents()
 
-    def create_remote_directory(self, path):
-        path_parts = path.strip('/').split('/')
-        current_path = self.remote_base_path
-        for part in path_parts:
-            current_path = os.path.join(current_path, part).replace("\\", "/")
-            try:
-                self.ftp.cwd(current_path)
-            except ftplib.error_perm:
-                try:
-                    self.ftp.mkd(current_path)
-                    self.log(f"디렉토리 생성: {current_path}")
-                except Exception as e:
-                    self.log(f"디렉토리 생성 실패: {current_path}, 오류: {e}", error=True)
-                    return
+    def ensure_dirs(self):
+        """
+        필요한 디렉터리들이 없으면 생성합니다.
+        """
+        dirs = [
+            os.path.join(self.labelPath, 'annotations', 'coco'),
+            os.path.join(self.labelPath, 'annotations', 'labelme_jsons'),
+            os.path.join(self.labelPath, 'images'),
+            os.path.join(self.labelPath, 'origins','images'),    # 원본 이미지 디렉터리
+            os.path.join(self.labelPath, 'archive'),    # ZIP 파일을 저장할 디렉터리
+        ]
+        for d in dirs:
+            os.makedirs(d, exist_ok=True)
+            self.log(f"디렉토리 확인/생성: {d}")
 
-    def upload_to_ftp(self, local_path, base_filename):
-        allowed_folders = {"data", "image"}
-        for root, dirs, files in os.walk(local_path):
-            rel_path = os.path.relpath(root, local_path).replace("\\", "/")
-            if rel_path == ".":
-                continue
+    def export(self):
+        """
+        LabelMe JSON → COCO JSON 변환 및 이미지 크롭,
+        그리고 최종 ZIP 아카이브 생성까지 수행합니다.
+        """
+        self.ensure_dirs()
 
-            parts = rel_path.split('/') if rel_path else []
-            if not parts or parts[0].lower() not in allowed_folders:
-                self.log(f"예상되지 않은 폴더 경로: {self.remote_base_path}/{rel_path}, 무시됨.", warning=True)
-                continue
+        json_dir = os.path.join(self.labelPath, 'annotations', 'labelme_jsons')
+        if not os.path.isdir(json_dir):
+            self.log(f"JSON 디렉터리 없음: {json_dir}", error=True)
+            return False
 
-            first_dir = parts[0].lower()
-            if first_dir == "data":
-                remote_folder = "annotations"
-            elif first_dir == "image":
-                # image 폴더 최상위의 파일은 원본 이미지로 간주 → origins/images에 업로드
-                if len(parts) == 1:
-                    remote_folder = "origins/images"
-                else:
-                    label = parts[1]
-                    remote_folder = f"images/{label}"  # 하위 폴더: crop 이미지로 업로드
-            else:
-                self.log(f"예상되지 않은 폴더: {first_dir}, 무시됨.", warning=True)
-                continue
+        json_files = [f for f in os.listdir(json_dir) if f.lower().endswith('.json')]
+        if not json_files:
+            self.log("LabelMe JSON 파일을 찾을 수 없습니다.", warning=True)
+            return False
 
-            self.create_remote_directory(remote_folder)
-            full_remote_folder = f"{self.remote_base_path}/{remote_folder}"
-            try:
-                self.ftp.cwd(full_remote_folder)
-            except ftplib.error_perm:
-                self.log(f"디렉토리 변경 실패: {full_remote_folder}", error=True)
-                continue
+        # COCO 구조 초기화
+        coco_out = os.path.join(self.labelPath, 'annotations', 'coco', 'dataset_coco.json')
+        coco = {"images": [], "annotations": [], "categories": []}
+        cat_map = {}
+        cat_id = 1
+        ann_id = 1  # 전체 COCO용 annotation ID
 
-            for file in files:
-                local_file_path = os.path.join(root, file)
-                new_filename = f"{base_filename}_{file}"
-                if first_dir == "data":
-                    if file.endswith(".json"):
-                        if "coco_annotation" in file:
-                            remote_path = f"{self.remote_base_path}/annotations/{new_filename}"
-                        else:
-                            remote_path = f"{self.remote_base_path}/annotations/labelme_jsons/{new_filename}"
-                            self.create_remote_directory("annotations/labelme_jsons")
-                    elif file.lower().endswith(('.zip', '.tar', '.tar.gz', '.tgz')):
-                        remote_path = f"{self.remote_base_path}/annotations/archives/{new_filename}"
-                        self.create_remote_directory("annotations/archives")
-                    else:
-                        continue
-                elif first_dir == "image":
-                    if file.lower().endswith(('.png', '.jpg', '.jpeg')):
-                        if len(parts) == 1:
-                            remote_path = f"{self.remote_base_path}/origins/images/{new_filename}"
-                        else:
-                            remote_path = f"{self.remote_base_path}/{remote_folder}/{new_filename}"
-                    else:
-                        continue
-                else:
-                    continue
-
-                try:
-                    with open(local_file_path, "rb") as f:
-                        self.ftp.storbinary(f"STOR {remote_path}", f)
-                        self.log(f"파일 업로드 완료: {remote_path}")
-                except Exception as e:
-                    self.log(f"파일 업로드 실패: {remote_path}, 오류: {e}", error=True)
-
-        # 아카이브 파일 업로드
-        self.upload_archive(local_path, base_filename)
-
-        # COCO 변환 및 업로드
-        data_folder = os.path.join(local_path, "data")
-        if os.path.exists(data_folder):
-            json_files = [os.path.join(data_folder, f) for f in os.listdir(data_folder) if f.endswith(".json")]
-            local_coco_json = os.path.join(local_path, f"{base_filename}_coco.json")
-            self.convert_to_coco(json_files, local_coco_json)
-            remote_coco_json = f"{self.remote_base_path}/annotations/coco/{base_filename}_coco.json"
-            self.create_remote_directory("annotations/coco")
-            try:
-                with open(local_coco_json, "rb") as f:
-                    self.ftp.storbinary(f"STOR {remote_coco_json}", f)
-                    self.log(f"COCO 파일 업로드 완료: {remote_coco_json}")
-            except Exception as e:
-                self.log(f"COCO 파일 업로드 실패: {remote_coco_json}, 오류: {e}", error=True)
-
-    def upload_archive(self, local_path, base_filename):
-        parent_dir = os.path.dirname(local_path)
-        archive_path = os.path.join(parent_dir, f"{base_filename}.zip")
-        if os.path.exists(archive_path):
-            self.create_remote_directory("archives")
-            remote_archive_path = f"{self.remote_base_path}/archives/{base_filename}.zip"
-            try:
-                with open(archive_path, "rb") as f:
-                    self.ftp.storbinary(f"STOR {remote_archive_path}", f)
-                    self.log(f"아카이브 파일 업로드 완료: {remote_archive_path}")
-            except Exception as e:
-                self.log(f"아카이브 파일 업로드 실패: {remote_archive_path}, 오류: {e}", error=True)
-
-
-    def convert_to_coco(self, json_files, output_path):
-        coco_data = {"images": [], "annotations": [], "categories": []}
-        annotation_id = 1
-        category_map = {}
-        category_id = 1
-
-        for json_file in json_files:
-            with open(json_file, "r", encoding="utf-8") as f:
+        for jf in json_files:
+            label_count_map = {}
+            jf_path = os.path.join(json_dir, jf)
+            with open(jf_path, 'r', encoding='utf-8') as f:
                 data = json.load(f)
-                image_id = len(coco_data["images"]) + 1
-                coco_data["images"].append({
-                    "id": image_id,
-                    "file_name": data["imagePath"],
-                    "width": data["imageWidth"],
-                    "height": data["imageHeight"]
+
+            # 원본 이미지 경로 (origins 폴더로 복사해 두는 경우)
+            abs_img = os.path.normpath(self.labelPath + data["imagePath"])
+            
+            pil_img = Image.open(abs_img).convert("RGBA")
+            width, height = pil_img.size
+
+            # COCO images 항목 추가
+            img_id = len(coco["images"]) + 1
+            coco["images"].append({
+                "id": img_id,
+                "file_name": data["imagePath"],
+                "width": width,
+                "height": height,
+            })
+
+            for shape in data.get("shapes", []):
+                lbl = shape["label"]
+                pts = shape["points"]
+
+                # COCO category 처리
+                if lbl not in cat_map:
+                    cat_map[lbl] = cat_id
+                    coco["categories"].append({"id": cat_id, "name": lbl})
+                    cat_id += 1
+
+                # bounding box 계산
+                xs = [p[0] for p in pts]
+                ys = [p[1] for p in pts]
+                xmin, xmax = int(min(xs)), int(max(xs))
+                ymin, ymax = int(min(ys)), int(max(ys))
+
+                # COCO annotation 추가
+                coco["annotations"].append({
+                    "id": ann_id,
+                    "image_id": img_id,
+                    "category_id": cat_map[lbl],
+                    "bbox": [xmin, ymin, xmax - xmin, ymax - ymin],
+                    "area": (xmax - xmin) * (ymax - ymin),
+                    "segmentation": [sum(pts, [])],
+                    "iscrowd": 0,
                 })
+                ann_id += 1
 
-                for shape in data["shapes"]:
-                    label = shape["label"]
-                    if label not in category_map:
-                        category_map[label] = category_id
-                        coco_data["categories"].append({"id": category_id, "name": label})
-                        category_id += 1
+                # 마스크 생성 및 크롭
+                mask = Image.new("L", (width, height), 0)
+                draw = ImageDraw.Draw(mask)
+                draw.polygon([(int(p[0]), int(p[1])) for p in pts], fill=255)
 
-                    coco_data["annotations"].append({
-                        "id": annotation_id,
-                        "image_id": image_id,
-                        "category_id": category_map[label],
-                        "bbox": [0, 0, 0, 0],  # 임시값, 실제 변환 필요
-                        "area": 0,
-                        "segmentation": [],
-                        "iscrowd": 0
-                    })
-                    annotation_id += 1
+                region = pil_img.crop((xmin, ymin, xmax, ymax))
+                mask_region = mask.crop((xmin, ymin, xmax, ymax))
+                region.putalpha(mask_region)
 
-        with open(output_path, "w", encoding="utf-8") as f:
-            json.dump(coco_data, f, indent=4)
-        self.log(f"COCO 변환 완료: {output_path}")
+                # 크롭 이미지 저장
+                label_count_map[lbl] = label_count_map.get(lbl, 0) + 1
+                idx = label_count_map[lbl]
+                dst_dir = os.path.join(self.labelPath, 'images', lbl)
+                os.makedirs(dst_dir, exist_ok=True)
+                base = os.path.splitext(os.path.basename(abs_img))[0]
+                crop_fname = f"{base}_{lbl}_{idx}.png"
+                save_path = os.path.join(dst_dir, crop_fname)
+                region.save(save_path)
+
+            self.log(f"처리 완료: {jf_path}")
+
+        # COCO JSON 저장
+        with open(coco_out, 'w', encoding='utf-8') as f:
+            json.dump(coco, f, indent=2)
+        self.log(f"COCO 파일 생성 완료: {coco_out}")
+
+        # ZIP 아카이브 생성
+        self.create_archive()
+
+        return True
+
+    def create_archive(self):
+        """
+        images/, annotations/, origins/images 폴더를 묶어
+        archive/ 안에 ZIP 파일로 저장하며,
+        self.log() 로 진행 상황을 출력합니다.
+        """
+        archive_dir = os.path.join(self.labelPath, 'archive')
+        os.makedirs(archive_dir, exist_ok=True)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        zip_name = f"dataset_{timestamp}.zip"
+        zip_path = os.path.join(archive_dir, zip_name)
+
+        # 압축할 파일 목록 수집
+        folders = {
+            'origins/images': os.path.join(self.labelPath, 'origins', 'images'),
+            'images': os.path.join(self.labelPath, 'images'),
+            'annotations': os.path.join(self.labelPath, 'annotations'),
+        }
+        entries = []
+        for arc_root, real_root in folders.items():
+            if not os.path.isdir(real_root):
+                self.log(f"폴더가 없습니다, 스킵: {real_root}", warning=True)
+                continue
+            for root, _, files in os.walk(real_root):
+                for fname in files:
+                    entries.append((arc_root, real_root, root, fname))
+
+        total = len(entries)
+        if total == 0:
+            self.log("압축할 파일이 없습니다.", warning=True)
+            return
+
+        self.log(f"아카이브 시작: 총 {total}개 파일을 압축합니다.")
+
+        with zipfile.ZipFile(zip_path, 'w', compression=zipfile.ZIP_DEFLATED) as zf:
+            for idx, (arc_root, real_root, root, fname) in enumerate(entries, start=1):
+                abs_path = os.path.join(root, fname)
+                rel_path = os.path.join(
+                    arc_root,
+                    os.path.relpath(abs_path, real_root)
+                )
+                zf.write(abs_path, rel_path)
+
+                # 진행 상황 로그 (예: [ 10 / 123 ] 압축 중)
+                self.log(f"[{idx:>4} / {total}] 압축 중")
+
+        self.log(f"아카이브 생성 완료: {zip_path}")

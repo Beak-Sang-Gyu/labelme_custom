@@ -109,6 +109,7 @@ class Canvas(QtWidgets.QWidget):
         self._image_embeddings: collections.OrderedDict[
             bytes, osam.types.ImageEmbedding
         ] = collections.OrderedDict()
+        self._ai_model=None
 
     def fillDrawing(self):
         return self._fill_drawing
@@ -135,12 +136,15 @@ class Canvas(QtWidgets.QWidget):
             raise ValueError("Unsupported createMode: %s" % value)
         self._createMode = value
 
-    def initializeAiModel(self, model_name):
+    def initializeAiModel(self, model_name): 
+        logger.warning("bsg initializeAiModel 0000000000000000")
         if self.pixmap is None:
+            logger.warning("bsg initializeAiModel 11111111111111111111111")
             logger.warning("Pixmap is not set yet")
             return
 
         if self._model is None or self._model.name != model_name:
+            logger.warning("bsg initializeAiModel 2222222222222222222222222")
             logger.debug("Initializing AI model {!r}", model_name)
             self._model = osam.apis.get_model_type_by_name(model_name)()
             self._image_embeddings.clear()
@@ -153,6 +157,8 @@ class Canvas(QtWidgets.QWidget):
             self._image_embeddings[image.tobytes()] = self._model.encode_image(
                 image=image
             )
+        self._ai_model = self._model
+        logger.warning("bsg initializeAiModel 33333333333333333333")
 
     def storeShapes(self):
         shapesBackup = []
@@ -559,7 +565,9 @@ class Canvas(QtWidgets.QWidget):
         if (
             self.createMode == "polygon" and self.canCloseShape()
         ) or self.createMode in ["ai_polygon", "ai_mask"]:
+            logger.warning("bsg --------------------------------------mouseDoubleClickEvent create mode Ai\n")
             self.finalise()
+            logger.warning("bsg --------------------------------------mouseDoubleClickEvent create mode Ai 111111111111111111111111\n")
 
     def selectShapes(self, shapes):
         self.setHiding()
@@ -734,6 +742,7 @@ class Canvas(QtWidgets.QWidget):
             drawing_shape.addPoint(self.line[1])
 
         if self.createMode not in ["ai_polygon", "ai_mask"]:
+            logger.warning("bsg --------------------------------------create mode Ai\n")
             p.end()
             return
 
@@ -813,19 +822,44 @@ class Canvas(QtWidgets.QWidget):
         return not (0 <= p.x() <= w - 1 and 0 <= p.y() <= h - 1)
 
     def finalise(self):
+        logger.warning("bsg ----------- finalise 00000000000000000000000\n")
         assert self.current
         if self.createMode == "ai_polygon":
+            logger.warning("bsg ----------- finalise 1111111111111111111\n")
             # convert points to polygon by an AI model
             assert self.current.shape_type == "points"
-            points = self._ai_model.predict_polygon_from_points(
-                points=[[point.x(), point.y()] for point in self.current.points],
-                point_labels=self.current.point_labels,
-            )
+            logger.warning("bsg ----------- finalise 2222222222222222222222222222\n")
+            if not self.current or not self.current.points:
+                print("current polygon or points is not available")
+                return
+
+            if not hasattr(self.current, 'point_labels') or not self.current.point_labels:
+                print("point_labels is missing or empty")
+                return
+            points=[[point.x(), point.y()] for point in self.current.points]
+            logger.warning(f"bsg ----------- finalise points : {points}\n")
+            logger.warning(f"bsg ----------- finalise self.current : {self.current}\n")
+            logger.warning(f"bsg ----------- finalise self.current.points : {self.current.points}\n")
+            logger.warning(f"bsg ----------- finalise self.current.point_labels : {self.current.point_labels}\n")
+            logger.warning(f"bsg ----------- finalise self.line : {self.line}\n")
+            logger.warning(f"bsg ----------- finalise self.line.points : {self.line.points}\n")
+
+            try:
+                points = self._ai_model.predict_polygon_from_points(
+                    points=[[point.x(), point.y()] for point in self.current.points],
+                    point_labels=self.current.point_labels,
+                )
+            except Exception as e:
+                print(f"Error during AI polygon prediction: {e}")
+                return
+
+            logger.warning("bsg ----------- finalise 333333333333333333333333333333333\n")
             self.current.setShapeRefined(
                 points=[QtCore.QPointF(point[0], point[1]) for point in points],
                 point_labels=[1] * len(points),
                 shape_type="polygon",
             )
+            logger.warning("bsg ----------- finalise 444444444444444444444444444\n")
         elif self.createMode == "ai_mask":
             # convert points to mask by an AI model
             assert self.current.shape_type == "points"
@@ -860,6 +894,7 @@ class Canvas(QtWidgets.QWidget):
         # Cycle through each image edge in clockwise fashion,
         # and find the one intersecting the current line segment.
         # http://paulbourke.net/geometry/lineline2d/
+        logger.info(f"bsg ----------- intersectionPoint intersectionPoint intersectionPoint intersectionPoint\n")
         size = self.pixmap.size()
         points = [
             (0, 0),
@@ -883,6 +918,7 @@ class Canvas(QtWidgets.QWidget):
         return QtCore.QPointF(x, y)
 
     def intersectingEdges(self, point1, point2, points):
+        logger.info(f"bsg ----------- intersectingEdges intersectingEdges intersectingEdges intersectingEdges intersectingEdges intersectingEdges\n")
         """Find intersecting edges.
 
         For each edge formed by `points', yield the intersection
@@ -1042,6 +1078,7 @@ class Canvas(QtWidgets.QWidget):
     def overrideCursor(self, cursor):
         self.restoreCursor()
         self._cursor = cursor
+        # logger.info(f"bsg ----------- overrideCursor overrideCursor overrideCursor overrideCursor overrideCursor\n")
         QtWidgets.QApplication.setOverrideCursor(cursor)
 
     def restoreCursor(self):
